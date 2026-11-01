@@ -4817,6 +4817,13 @@ enum WindowShot {
     }
 
     static func capture(to path: String) {
+        // PAINTBOX_APPEARANCE=dark|light renders that appearance whatever the system is
+        // set to, so both can be looked at from one machine without touching its settings.
+        switch ProcessInfo.processInfo.environment["PAINTBOX_APPEARANCE"]?.lowercased() {
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        default: break
+        }
         let doc = PaintDocument(width: 420, height: 300, fill: .white)
         let controller = PaintWindowController(document: doc)
         let settings = controller.settings
