@@ -31,7 +31,7 @@ and a declarative layer fights you for no gain.
 ./Paintbox.app/Contents/MacOS/Paintbox --selftest
 ```
 
-**199 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
+**200 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
 the code ran: that right-angle rotation is lossless, that alpha survives all seven save
 formats, that a blur leaves every pixel outside the selection untouched, that undo restores
 byte for byte, and that background removal actually finds a subject.
@@ -40,6 +40,9 @@ Two more entry points, and both matter because `screencapture` returns black on 
 
 ```
 --screenshot out.png        # renders the real window's view tree to a PNG. This is how you SEE it.
+                            # PAINTBOX_APPEARANCE=dark (or light) picks the appearance. The view
+                            # tree draws the sidebar material flat and, in dark, the toolbar
+                            # icons as white shapes; the app on screen does neither.
 --cutout in.jpg out.png     # background removal, headless, format from the output extension
 ```
 

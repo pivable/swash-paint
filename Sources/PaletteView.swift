@@ -14,11 +14,13 @@ final class SwatchButton: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func draw(_ dirtyRect: NSRect) {
-        let r = bounds.insetBy(dx: 1, dy: 1)
-        NSColor(white: 0.35, alpha: 1).setStroke()
+        // Rounded, with a hairline in the system separator colour so white still has an
+        // edge on a light sidebar and black still has one on a dark sidebar.
+        let r = bounds.insetBy(dx: 1.5, dy: 1.5)
+        let p = NSBezierPath(roundedRect: r, xRadius: Theme.swatchRadius, yRadius: Theme.swatchRadius)
         color.setFill()
-        let p = NSBezierPath(rect: r)
         p.fill()
+        NSColor.separatorColor.setStroke()
         p.lineWidth = 1
         p.stroke()
     }
@@ -43,7 +45,18 @@ final class ColorWellsView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         func well(_ r: CGRect, _ c: NSColor) {
-            NSColor.white.setFill(); NSBezierPath(rect: r.insetBy(dx: -2, dy: -2)).fill()
+            let outer = NSBezierPath(roundedRect: r.insetBy(dx: -2, dy: -2), xRadius: 7, yRadius: 7)
+            NSGraphicsContext.saveGraphicsState()
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor(white: 0, alpha: 0.25)
+            shadow.shadowBlurRadius = 3
+            shadow.shadowOffset = CGSize(width: 0, height: -1)
+            shadow.set()
+            NSColor.white.setFill(); outer.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            let inner = NSBezierPath(roundedRect: r, xRadius: 5, yRadius: 5)
+            NSGraphicsContext.saveGraphicsState()
+            inner.addClip()
             // A checkerboard under the swatch, so a colour with alpha below 1 — which the
             // system picker offers by default, and which the eyedropper hands you from any
             // soft edge — LOOKS translucent. Painted flat on white it looked like an
@@ -63,17 +76,21 @@ final class ColorWellsView: NSView {
                 }
                 y += square
             }
-            c.setFill(); NSBezierPath(rect: r).fill()
-            NSColor(white: 0.3, alpha: 1).setStroke()
-            let p = NSBezierPath(rect: r); p.lineWidth = 1; p.stroke()
+            c.setFill(); r.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.separatorColor.setStroke()
+            inner.lineWidth = 1; inner.stroke()
         }
         well(bgRect, background)
         well(fgRect, foreground)
-        let arrow = NSAttributedString(string: "⇄", attributes: [
-            .font: NSFont.systemFont(ofSize: 14),
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ])
-        arrow.draw(at: CGPoint(x: swapRect.minX + 3, y: swapRect.minY + 2))
+        if let swap = NSImage(systemSymbolName: "arrow.left.arrow.right",
+                              accessibilityDescription: "Swap colours")?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)
+                .applying(.init(paletteColors: [.secondaryLabelColor]))) {
+            let s = swap.size
+            swap.draw(in: CGRect(x: swapRect.midX - s.width / 2, y: swapRect.midY - s.height / 2,
+                                 width: s.width, height: s.height))
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -158,19 +175,13 @@ final class PaletteView: NSView {
 
     override var isFlipped: Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
-        dirtyRect.fill()
-        NSColor.separatorColor.setStroke()
-        let p = NSBezierPath()
-        p.move(to: CGPoint(x: bounds.maxX - 0.5, y: 0))
-        p.line(to: CGPoint(x: bounds.maxX - 0.5, y: bounds.maxY))
-        p.stroke()
-    }
+    // No `draw`: the palette is transparent, so the sidebar material behind it — set up
+    // by the window controller — is what shows, light or dark, tinted by the desktop.
 
+    /// Section headings, in the sentence case macOS sidebars use.
     private func label(_ s: String) -> NSTextField {
-        let l = NSTextField(labelWithString: s)
-        l.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        let l = NSTextField(labelWithString: s.capitalized)
+        l.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         l.textColor = .secondaryLabelColor
         return l
     }
@@ -187,13 +198,11 @@ final class PaletteView: NSView {
         let bw: CGFloat = 66, bh: CGFloat = 40
         for (i, tool) in Tool.allCases.enumerated() {
             let col = i % cols, row = i / cols
-            let b = NSButton(frame: CGRect(x: 8 + CGFloat(col) * (bw + 4),
-                                           y: y + CGFloat(row) * (bh + 4), width: bw, height: bh))
-            b.bezelStyle = .texturedRounded
-            b.setButtonType(.pushOnPushOff)
+            let b = ToolTileButton(frame: CGRect(x: 8 + CGFloat(col) * (bw + 4),
+                                                 y: y + CGFloat(row) * (bh + 4), width: bw, height: bh))
             b.title = tool.key.uppercased()
-            b.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-            if let img = NSImage(systemSymbolName: tool.symbolName, accessibilityDescription: tool.title) {
+            if let img = NSImage(systemSymbolName: tool.symbolName, accessibilityDescription: tool.title)?
+                .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) {
                 b.image = img
                 b.imagePosition = .imageLeading
             } else {
@@ -234,8 +243,12 @@ final class PaletteView: NSView {
 
         let more = NSButton(title: "Colour Picker…", target: self, action: #selector(moreColors(_:)))
         more.frame = CGRect(x: 8, y: y, width: 140, height: 22)
-        more.bezelStyle = .rounded
-        more.font = NSFont.systemFont(ofSize: 11)
+        more.bezelStyle = .push
+        more.controlSize = .regular
+        more.font = NSFont.systemFont(ofSize: 12)
+        more.image = NSImage(systemSymbolName: "eyedropper.halffull", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
+        more.imagePosition = .imageLeading
         addSubview(more)
         y += 30
 
@@ -249,7 +262,7 @@ final class PaletteView: NSView {
             let t = label(title)
             t.frame = CGRect(x: 10, y: y, width: 102, height: 14)
             addSubview(t)
-            lbl.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+            lbl.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             lbl.textColor = .secondaryLabelColor
             lbl.alignment = .right
             lbl.frame = CGRect(x: 106, y: y, width: 42, height: 14)
@@ -313,6 +326,7 @@ final class PaletteView: NSView {
     func refresh() {
         for (tool, button) in toolButtons {
             button.state = (tool == settings.tool) ? .on : .off
+            (button as? ToolTileButton)?.restyle()
         }
         wells.foreground = settings.foreground
         wells.background = settings.background

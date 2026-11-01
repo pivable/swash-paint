@@ -4512,6 +4512,39 @@ enum SelfTest {
         commandLineChecks()
         cascadeChecks()
         imageDataDropChecks(tmp: tmp)
+        themeChecks()
+    }
+
+    // ---- The 2026 look answers for light and dark ----------------------------
+
+    /// The backdrop has to be a different colour in each appearance — the old flat grey
+    /// was the same in both — and the current tool has to be marked by the accent colour,
+    /// in either appearance, with the rest left quiet.
+    private static func themeChecks() {
+        func white(_ c: NSColor, _ name: NSAppearance.Name) -> CGFloat {
+            var v: CGFloat = -1
+            NSAppearance(named: name)?.performAsCurrentDrawingAppearance {
+                v = c.usingColorSpace(.sRGB)?.redComponent ?? -1
+            }
+            return v
+        }
+        let light = white(Theme.backdrop, .aqua), dark = white(Theme.backdrop, .darkAqua)
+        var tiles: [String] = []
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let b = ToolTileButton(frame: CGRect(x: 0, y: 0, width: 66, height: 40))
+            b.appearance = NSAppearance(named: name)
+            b.title = "B"
+            b.state = .on
+            let on = b.layer?.backgroundColor
+            b.state = .off
+            let off = b.layer?.backgroundColor
+            let accent = Theme.resolved(.controlAccentColor, in: b)
+            tiles.append(on == accent && off != accent ? "ok" : "\(name.rawValue) WRONG")
+        }
+        check("the look follows light and dark",
+              light > 0.8 && dark < 0.2 && tiles == ["ok", "ok"],
+              "backdrop \(String(format: "%.2f", light)) light, \(String(format: "%.2f", dark)) dark; "
+                  + "the current tool is accent-coloured in both: \(tiles.joined(separator: ", "))")
     }
 
     // ---- "Save a Copy…" must leave the window on the original ----------------

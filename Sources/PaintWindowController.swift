@@ -3,6 +3,30 @@ import UniformTypeIdentifiers
 
 /// Keeps a small document centred in the scroll view instead of jammed to one corner.
 final class CenteringClipView: NSClipView {
+    /// The backdrop, and the canvas's soft shadow on it. Drawn here rather than as a
+    /// layer shadow on the canvas because the canvas clips to its own bounds, which
+    /// would clip its shadow away with everything else.
+    override func draw(_ dirtyRect: NSRect) {
+        Theme.backdrop.setFill()
+        dirtyRect.fill()
+        guard let doc = documentView else { return }
+        let paper = doc.frame
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = Theme.canvasShadow
+        shadow.shadowBlurRadius = 14
+        shadow.shadowOffset = CGSize(width: 0, height: -3)
+        shadow.set()
+        // Under the paper only, so a transparent picture's checkerboard is not darkened.
+        NSColor.black.setFill()
+        let path = NSBezierPath(rect: paper)
+        let clip = NSBezierPath(rect: bounds.insetBy(dx: -40, dy: -40))
+        clip.append(path.reversed)
+        clip.addClip()
+        path.fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
         var rect = super.constrainBoundsRect(proposedBounds)
         guard let doc = documentView else { return rect }
@@ -65,6 +89,16 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         let content = NSView(frame: window.contentLayoutRect)
         content.autoresizingMask = [.width, .height]
 
+        // The sidebar: the system's own translucent material, as Finder, Mail and Notes
+        // use, so it follows light and dark and picks up the desktop's tint by itself.
+        let sidebar = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: PaletteView.preferredWidth,
+                                                       height: content.bounds.height))
+        sidebar.material = .sidebar
+        sidebar.blendingMode = .behindWindow
+        sidebar.state = .followsWindowActiveState
+        sidebar.autoresizingMask = [.height]
+        content.addSubview(sidebar)
+
         palette = PaletteView(settings: settings)
         let paletteScroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: PaletteView.preferredWidth,
                                                        height: content.bounds.height))
@@ -89,19 +123,27 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.allowsMagnification = false
-        scrollView.backgroundColor = NSColor(white: 0.35, alpha: 1)
+        scrollView.backgroundColor = Theme.backdrop
+        scrollView.drawsBackground = true
         let clip = CenteringClipView()
         clip.drawsBackground = true
-        clip.backgroundColor = NSColor(white: 0.35, alpha: 1)
+        clip.backgroundColor = Theme.backdrop
         scrollView.contentView = clip
         scrollView.documentView = canvas
         content.addSubview(scrollView)
+
+        // A hairline between the canvas and the status line, instead of a hard edge.
+        let rule = NSBox(frame: CGRect(x: PaletteView.preferredWidth, y: 21,
+                                       width: content.bounds.width - PaletteView.preferredWidth, height: 1))
+        rule.boxType = .separator
+        rule.autoresizingMask = [.width]
+        content.addSubview(rule)
 
         statusLabel = NSTextField(labelWithString: "")
         statusLabel.frame = CGRect(x: PaletteView.preferredWidth + 8, y: 3,
                                    width: content.bounds.width - PaletteView.preferredWidth - 16, height: 16)
         statusLabel.autoresizingMask = [.width]
-        statusLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        statusLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         statusLabel.textColor = .secondaryLabelColor
         content.addSubview(statusLabel)
 

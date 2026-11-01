@@ -39,7 +39,7 @@ angles, an undo stack with no ceiling, an intricate selection outline, a panel l
 pointing at a closed window — and the ways it could throw work away or mislabel it
 quietly: two windows aimed at one file, a ⌘S that would change a file's format under you,
 a `--cutout` that wrote bytes its output was not named for. It prints a `PASS`/`FAIL` line
-per check — 199 of them — and exits non-zero on any failure.
+per check — 200 of them — and exits non-zero on any failure.
 `--screenshot` builds the real window, draws into it, and writes what AppKit renders to a
 PNG, so you can see the interface without screen-recording permission.
 
