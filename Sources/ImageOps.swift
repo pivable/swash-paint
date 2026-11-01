@@ -220,11 +220,24 @@ extension PaintDocument {
 
     // MARK: - Remove background (Vision, on device)
 
-    func removeBackground() throws {
-        let src = image
-        let cut = try BackgroundRemover.cutout(from: src)
-        registerUndo(name: "Remove Background")
-        install(image: cut, width: pixelWidth, height: pixelHeight)
+    /// With a selection, only the selection is cut out: Vision is shown the selection's
+    /// bounding box, and the result goes back through the mask, so every pixel outside
+    /// the selection is left exactly as it was. That is the rule Blur, Pixelate and
+    /// Adjustments already follow, and Remove Background used to be the one item on the
+    /// menu that silently ignored it and cut the whole picture. Showing Vision only the
+    /// box is also the useful part: with two people in a photo, selecting one is how you
+    /// say which.
+    func removeBackground(mask: SelectionMask? = nil) throws {
+        guard let mask, !mask.isEmpty else {
+            let cut = try BackgroundRemover.cutout(from: image)
+            registerUndo(name: "Remove Background")
+            install(image: cut, width: pixelWidth, height: pixelHeight)
+            return
+        }
+        let box = mask.bounds.integral.intersection(bounds)
+        guard box.width >= 1, box.height >= 1, let region = copy(rect: box) else { return }
+        let cut = try BackgroundRemover.cutout(from: region)
+        composite(cut, at: box.origin, through: mask, name: "Remove Background")
     }
 
     // MARK: - Clipboard helpers

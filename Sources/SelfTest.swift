@@ -436,6 +436,9 @@ enum SelfTest {
         // ---- 23. The ways it used to promise one thing and do another -----------
         uxChecks(tmp: tmp)
 
+        // ---- 24. What the completeness critic found after the review -------------
+        criticChecks(tmp: tmp)
+
         print("------------------")
         print("\(passes) passed, \(failures) failed")
         return failures == 0 ? 0 : 1
@@ -1861,7 +1864,10 @@ enum SelfTest {
     }
 
     private static func describe(_ r: CGRect) -> String {
-        "(\(Int(r.minX)), \(Int(r.minY)), \(Int(r.width))x\(Int(r.height)))"
+        // A null rect is infinite, and `Int(.infinity)` traps: a check that found nothing
+        // has to be able to say so rather than take the whole suite down with it.
+        guard !r.isNull, r.minX.isFinite, r.minY.isFinite else { return "NOWHERE" }
+        return "(\(Int(r.minX)), \(Int(r.minY)), \(Int(r.width))x\(Int(r.height)))"
     }
 
     // ---- The shape preview draws the shape that gets stamped ----------------
@@ -4493,6 +4499,295 @@ enum SelfTest {
                   + "it; the picture was \(checksum(doc.context) == pixelsBefore ? "left alone" : "STAMPED ON"); "
                   + "a text box was \(typingBefore ? "open" : "MISSING") and "
                   + "\(typingController.canvas.isEditingText ? "IS STILL OPEN" : "is gone")")
+    }
+
+    // MARK: - What the completeness critic found
+
+    /// The six findings `KNOWN-ISSUES.md` listed as open after publication, one check
+    /// each, in the order they could hurt: losing a drawing first.
+    private static func criticChecks(tmp: URL) {
+        saveACopyChecks(tmp: tmp)
+        removeBackgroundSelectionChecks()
+        textEditorRestyleChecks()
+        commandLineChecks()
+        cascadeChecks()
+        imageDataDropChecks(tmp: tmp)
+    }
+
+    // ---- "Save a Copy…" must leave the window on the original ----------------
+
+    /// The frames alert offers "Save a Copy…" as the way NOT to flatten an animation.
+    /// It used to run Save As, so the window moved onto the copy and the next ⌘S went
+    /// there too, while the original — the file the user had chosen to protect — was
+    /// silently dropped from the window. A copy has to leave the document where it was:
+    /// same file, still unsaved, still knowing it came from an animation.
+    private static func saveACopyChecks(tmp: URL) {
+        let gif = tmp.appendingPathComponent("animated-for-copy.gif")
+        guard writeAnimatedGIF(to: gif, colors: [red, blue, green]),
+              let doc = PaintDocument.open(url: gif) else {
+            check("Save a Copy leaves the window on the original", false, "could not build the fixture")
+            check("closing via Save a Copy keeps both files", false, "could not build the fixture")
+            return
+        }
+        let gifBefore = try? Data(contentsOf: gif)
+        let controller = PaintWindowController(document: doc)
+        PaintboxApp.shared.adopt(controller)
+        doc.edit("Pencil") { c in
+            c.setFillColor(cyan.cgColor)
+            c.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }
+        let copyURL = tmp.appendingPathComponent("animated-for-copy copy.png")
+        let wrote = controller.saveAs(to: copyURL, format: .png, quality: 0.8, asCopy: true)
+        let copyPixel = Bitmap.load(url: copyURL).map { Bitmap.context(from: $0).sample(x: 16, y: 16) } ?? .clear
+        let stayed = doc.fileURL.map { PaintWindowController.samePath($0, gif) } == true
+        // And a copy aimed at the very file the user declined to flatten is refused.
+        var ownSaid = ""
+        if case .refused(let why) = controller.saveAs(to: gif, format: .gif, quality: 0.8, asCopy: true) {
+            ownSaid = why
+        }
+        let gifUntouched = (try? Data(contentsOf: gif)) == gifBefore
+        let cyanCopy = copyPixel.g > 200 && copyPixel.b > 200 && copyPixel.r < 60
+        check("Save a Copy leaves the window on the original",
+              wrote == .wrote(copyURL) && cyanCopy && stayed && doc.isDirty
+                  && doc.sourceFrameCount == 3 && !ownSaid.isEmpty && gifUntouched,
+              "the copy \(wrote == .wrote(copyURL) ? "was written" : "WAS NOT WRITTEN") and reads "
+                  + "\(copyPixel); the window is \(stayed ? "still on the .gif" : "NOW ON \(doc.displayName)"), "
+                  + "\(doc.isDirty ? "still unsaved" : "CLAIMING SAVED"), \(doc.sourceFrameCount) frames; "
+                  + "a copy over its own file \(ownSaid.isEmpty ? "WAS ALLOWED" : "is refused"); "
+                  + "the .gif is \(gifUntouched ? "byte for byte what it was" : "CHANGED")")
+
+        // The same choice from the close review: Save → "Save a Copy…" → a file. The work
+        // is on disk, so the window may go — without the animation being flattened and
+        // without a second "save changes?" over a copy that was just written.
+        let closeCopy = tmp.appendingPathComponent("from-the-close-review.png")
+        var plainPanels = 0
+        let mayClose = controller.saveBeforeClosing(
+            panel: { _ in plainPanels += 1; return false },
+            copyPanel: { controller.saveAs(to: closeCopy, format: .png, quality: 0.8, asCopy: true)
+                == .wrote(closeCopy) },
+            frames: { .saveACopy })
+        let cancelled = controller.saveBeforeClosing(panel: { _ in false }, copyPanel: { false },
+                                                     frames: { .saveACopy })
+        let stillGIF = Bitmap.frameCount(url: gif) == 3 && (try? Data(contentsOf: gif)) == gifBefore
+        check("closing via Save a Copy keeps both files",
+              mayClose && !cancelled && plainPanels == 0 && stillGIF
+                  && FileManager.default.fileExists(atPath: closeCopy.path),
+              "a written copy \(mayClose ? "lets the window close" : "HOLDS THE WINDOW"), a cancelled "
+                  + "one \(cancelled ? "LETS IT CLOSE" : "holds it"); \(plainPanels) Save As panels; "
+                  + "the .gif \(stillGIF ? "still has its 3 frames" : "WAS FLATTENED")")
+        controller.window?.close()
+        PaintboxApp.shared.forget(controller)
+    }
+
+    // ---- Remove Background honours the selection -----------------------------
+
+    /// Blur, Pixelate and Adjustments all work on the selection when there is one; Remove
+    /// Background cut the whole picture regardless. Two figures side by side, the left
+    /// one selected: the left must be cut out and the right must not move by one byte.
+    private static func removeBackgroundSelectionChecks() {
+        let figure = makeSubjectImage()
+        let doc = PaintDocument(width: 1024, height: 512, fill: nil)
+        doc.context.draw(figure, in: CGRect(x: 0, y: 0, width: 512, height: 512))
+        doc.context.draw(figure, in: CGRect(x: 512, y: 0, width: 512, height: 512))
+        doc.touch()
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        doc.undoManager = undo
+        func rightHalf() -> [RGBA] {
+            var out: [RGBA] = []
+            for y in stride(from: 0, to: 512, by: 3) {
+                for x in stride(from: 512, to: 1024, by: 3) { out.append(doc.context.sample(x: x, y: y)) }
+            }
+            return out
+        }
+        let rightBefore = rightHalf()
+        let before = checksum(doc.context)
+        let mask = SelectionMask(width: 1024, height: 512, rect: CGRect(x: 0, y: 0, width: 512, height: 512))
+        do {
+            try doc.removeBackground(mask: mask)
+            let leftCorner = doc.context.sample(x: 4, y: 4)
+            let leftSubject = doc.context.sample(x: 256, y: 300)
+            let rightCorner = doc.context.sample(x: 1019, y: 4)
+            let rightSame = rightHalf() == rightBefore
+            undo.undo()
+            let restored = checksum(doc.context) == before
+            check("Remove Background keeps to the selection",
+                  leftCorner.a == 0 && leftSubject.a > 200 && rightCorner.a == 255 && rightSame && restored,
+                  "selected half: corner \(leftCorner), subject \(leftSubject); unselected half: corner "
+                      + "\(rightCorner), \(rightSame ? "untouched" : "CHANGED"); undo "
+                      + "\(restored ? "restores it" : "DOES NOT RESTORE IT")")
+        } catch {
+            check("Remove Background keeps to the selection", false, error.localizedDescription)
+        }
+    }
+
+    // ---- The open text box follows the font and colour ---------------------
+
+    /// Picking a font or a colour while a text box was open changed what Return would
+    /// draw, but the box kept showing the old one. Through a real window controller, so
+    /// the settings wiring that has to carry the change is the real one.
+    private static func textEditorRestyleChecks() {
+        let doc = PaintDocument(width: 300, height: 140, fill: .white)
+        let controller = PaintWindowController(document: doc)
+        let settings = controller.settings
+        let canvas = controller.canvas!
+        canvas.zoom = 1
+        settings.tool = .text
+        settings.foreground = red
+        settings.font = NSFont.systemFont(ofSize: 18)
+        canvas.begin(.init(point: CGPoint(x: 30, y: 24)))
+        guard let field = canvas.editingTextField else {
+            check("the text box shows the font it will draw", false, "the text tool opened no editor")
+            return
+        }
+        field.stringValue = "Hg"
+        // Changed while the box is open, as the font panel and the palette do.
+        settings.font = NSFont.boldSystemFont(ofSize: 44)
+        settings.foreground = blue
+        // The field editor, when the box has one, is what is actually on screen. AppKit
+        // passes a new font on to it from the field; this holds it to that.
+        let editorFont = (field.currentEditor() as? NSTextView)?.font?.pointSize ?? 44
+        let fontShown = min(field.font?.pointSize ?? 0, editorFont)
+        let boldShown = field.font.map { NSFontManager.shared.traits(of: $0).contains(.boldFontMask) } ?? false
+        let colourShown = field.textColor?.usingColorSpace(.sRGB).map { $0.blueComponent > 0.9 && $0.redComponent < 0.1 } ?? false
+
+        // What is on screen, field editor included: the box has the keyboard, so the
+        // letters are drawn by the editor, not by the field's cell. Rendered through the
+        // view tree and scaled back from the backing resolution to view points.
+        let isInk: (RGBA) -> Bool = { $0.b > 120 && $0.r < 90 && $0.g < 90 }
+        var shown = CGRect.null
+        if let rep = field.bitmapImageRepForCachingDisplay(in: field.bounds) {
+            field.cacheDisplay(in: field.bounds, to: rep)
+            if let cg = rep.cgImage {
+                let k = CGFloat(cg.width) / field.bounds.width
+                let box = inkBox(Bitmap.context(from: cg), isInk)
+                if !box.isNull {
+                    shown = CGRect(x: box.minX / k, y: box.minY / k, width: box.width / k,
+                                   height: box.height / k)
+                        .offsetBy(dx: field.frame.minX, dy: field.frame.minY)
+                }
+            }
+        }
+        canvas.commitTextIfEditing()
+        let drawn = inkBox(doc.context, isInk)
+        let same = !shown.isNull && !drawn.isNull && abs(shown.minX - drawn.minX) <= 1.5
+            && abs(shown.minY - drawn.minY) <= 1.5 && abs(shown.width - drawn.width) <= 2
+            && abs(shown.height - drawn.height) <= 2
+        check("the text box shows the font it will draw",
+              fontShown == 44 && boldShown && colourShown && same,
+              "after switching to 44pt bold blue the box shows \(fontShown)pt, "
+                  + "\(boldShown ? "bold" : "NOT BOLD"), \(colourShown ? "blue" : "THE OLD COLOUR"); "
+                  + "shown at \(describe(shown)), drawn at \(describe(drawn))")
+        controller.window?.close()
+        PaintboxApp.shared.forget(controller)
+    }
+
+    // ---- A mistyped flag is an error, not a window ---------------------------
+
+    private static func commandLineChecks() {
+        let exe = "/Applications/Paintbox.app/Contents/MacOS/Paintbox"
+        func parse(_ a: String...) -> CommandLineRoute { CommandLineRoute.parse([exe] + a) }
+        let cases: [(String, CommandLineRoute, Bool)] = [
+            ("no arguments", parse(), parse() == .gui),
+            ("a file to open", parse("photo.png"), parse("photo.png") == .gui),
+            ("what macOS adds", parse("-psn_0_12345", "-NSDocumentRevisionsDebugMode", "YES"),
+             parse("-psn_0_12345", "-NSDocumentRevisionsDebugMode", "YES") == .gui),
+            ("--selftest", parse("--selftest"), parse("--selftest") == .selftest),
+            ("--cutout a b", parse("--cutout", "a.jpg", "b.png"),
+             parse("--cutout", "a.jpg", "b.png") == .cutout(input: "a.jpg", output: "b.png")),
+            ("--screenshot", parse("--screenshot", "s.png"), parse("--screenshot", "s.png") == .screenshot(output: "s.png")),
+            ("--help", parse("--help"), parse("--help") == .help),
+        ]
+        func isError(_ r: CommandLineRoute) -> Bool { if case .usageError = r { return true }; return false }
+        let mistakes: [(String, CommandLineRoute)] = [
+            ("--self-test", parse("--self-test")),
+            ("--cutout with one file", parse("--cutout", "a.jpg")),
+            ("--screenshot with none", parse("--screenshot")),
+            ("--cutout a --selftest", parse("--cutout", "a.jpg", "--selftest")),
+            ("two flags", parse("--selftest", "--help")),
+        ]
+        let wrongGood = cases.filter { !$0.2 }.map { "\($0.0) -> \($0.1)" }
+        let wrongBad = mistakes.filter { !isError($0.1) }.map { "\($0.0) -> \($0.1)" }
+        check("a mistyped flag is an error, not a window",
+              wrongGood.isEmpty && wrongBad.isEmpty,
+              wrongGood.isEmpty && wrongBad.isEmpty
+                  ? "\(cases.count) good command lines route as meant; \(mistakes.count) mistakes all print usage"
+                  : (wrongGood + wrongBad).joined(separator: "; "))
+    }
+
+    // ---- New windows step down and right -------------------------------------
+
+    private static func cascadeChecks() {
+        let visible = NSRect(x: 0, y: 25, width: 1440, height: 850)
+        let size = NSRect(x: 0, y: 0, width: 1100, height: 760)
+        let first = NSRect(x: 170, y: 110, width: 1100, height: 760)
+        let second = PaintboxApp.cascadedFrame(size, after: first, within: visible)
+        let third = PaintboxApp.cascadedFrame(size, after: second, within: visible)
+        // A window already as low as it can go: the next one starts again at the top.
+        let low = NSRect(x: 300, y: 25, width: 1100, height: 760)
+        let wrapped = PaintboxApp.cascadedFrame(size, after: low, within: visible)
+        let step = PaintboxApp.cascadeStep
+        check("each new window steps clear of the last",
+              second.minX == first.minX + step && second.maxY == first.maxY - step
+                  && second.size == size.size && third.minX == second.minX + step
+                  && visible.contains(wrapped) && wrapped.minX == visible.minX + step
+                  && wrapped.maxY == visible.maxY - step,
+              "after \(describe(first)): \(describe(second)), then \(describe(third)); "
+                  + "after one at the bottom: \(describe(wrapped))")
+    }
+
+    // ---- A picture dragged from a browser or Photos ---------------------------
+
+    /// Browsers put the picture's bytes on the drag pasteboard, not a file. Those used to
+    /// be refused outright because only file URLs were registered. Photos and Chrome
+    /// promise a file instead; that half is asynchronous and is checked by what the view
+    /// registers for, since no test can be another app keeping a promise.
+    private static func imageDataDropChecks(tmp: URL) {
+        let pb = NSPasteboard(name: NSPasteboard.Name("paintbox-selftest-drop-\(getpid())"))
+        defer { pb.releaseGlobally() }
+        let doc = PaintDocument(width: 60, height: 40, fill: .white)
+        let canvas = CanvasView(document: doc, settings: ToolSettings())
+        let stripe = squareDoc(size: 20, rects: [CGRect(x: 0, y: 0, width: 20, height: 10)])
+        let png = NSBitmapImageRep(cgImage: stripe.image).representation(using: .png, properties: [:]) ?? Data()
+        let tiff = NSBitmapImageRep(cgImage: stripe.image).tiffRepresentation ?? Data()
+
+        pb.clearContents()
+        pb.setData(png, forType: .png)
+        let pngOffered = CanvasView.canAcceptDrop(from: pb)
+        let pngSaid = canvas.acceptDrop(pasteboard: pb, at: CGPoint(x: 30, y: 20))
+        let frame = canvas.floatingFrame
+        canvas.commitFloating()
+        let top = doc.context.sample(x: 30, y: 15)
+
+        pb.clearContents()
+        pb.setData(tiff, forType: .tiff)
+        let tiffSaid = canvas.acceptDrop(pasteboard: pb, at: CGPoint(x: 10, y: 10))
+        canvas.cancelFloating()
+
+        // Still refused: a file that is not a picture, and text.
+        let text = tmp.appendingPathComponent("notes.txt")
+        try? Data("hello".utf8).write(to: text)
+        pb.clearContents()
+        pb.writeObjects([text as NSURL])
+        let textOffered = CanvasView.canAcceptDrop(from: pb)
+        let textSaid = canvas.acceptDrop(pasteboard: pb, at: CGPoint(x: 10, y: 10))
+        pb.clearContents()
+        pb.setString("just words", forType: .string)
+        let wordsOffered = CanvasView.canAcceptDrop(from: pb)
+
+        let registered = Set(canvas.registeredDraggedTypes)
+        let promises = NSFilePromiseReceiver.readableDraggedTypes.allSatisfy {
+            registered.contains(NSPasteboard.PasteboardType($0))
+        }
+        check("a picture dragged from a browser lands",
+              pngOffered && pngSaid == .placed && frame == CGRect(x: 20, y: 10, width: 20, height: 20)
+                  && isRed(top) && tiffSaid == .placed && !textOffered && textSaid == .notAnImageFile
+                  && !wordsOffered && !canvas.hasFloatingItem && registered.contains(.png)
+                  && registered.contains(.tiff) && promises,
+              "PNG bytes: offered \(pngOffered), \(pngSaid) at \(frame.map(describe) ?? "NOWHERE") "
+                  + "reading \(top); TIFF bytes: \(tiffSaid); a .txt file: offered \(textOffered), "
+                  + "\(textSaid); plain text offered \(wordsOffered); file promises "
+                  + "\(promises ? "registered" : "NOT REGISTERED")")
     }
 }
 

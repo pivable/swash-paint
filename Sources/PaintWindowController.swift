@@ -110,6 +110,7 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         settings.onChange = { [weak self] in
             guard let self else { return }
             self.palette.refresh()
+            self.canvas.styleTextEditor()
             self.canvas.window?.invalidateCursorRects(for: self.canvas)
             self.updateStatus(nil)
         }
@@ -385,7 +386,19 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
     }
 
     @IBAction func saveDocument(_ sender: Any?) {
-        _ = performSave(panel: { [self] in runSavePanel(message: $0) })
+        _ = performSave(panel: { [self] in runSavePanel(message: $0) },
+                        copyPanel: { [self] in runSavePanel(message: nil, asCopy: true) })
+    }
+
+    /// What ⌘S ended up doing. A copy is its own answer because it leaves the window
+    /// exactly where it was — still on the original, still unsaved — and the close
+    /// review has to tell that apart from a save that went wrong.
+    enum SaveResult: Equatable {
+        case notSaved
+        /// The document's own file was written, here or through the panel.
+        case saved
+        /// The picture went to another file and the window was left on the original.
+        case copied
     }
 
     /// Everything ⌘S does, reporting whether a file was actually written.
@@ -395,17 +408,25 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
     /// likes, while the close and quit review has to have the file on disk before it
     /// returns. So ⌘S hands in the sheet (which always reports false — its answer is not
     /// known yet) and `saveBeforeClosing` hands in a modal panel.
+    ///
+    /// `copyPanel` and `frames` are seams for the same reason: the frames question is a
+    /// modal alert, and the self-test has to be able to answer it.
     @discardableResult
-    func performSave(panel runPanel: (String?) -> Bool) -> Bool {
+    func performSave(panel runPanel: (String?) -> Bool,
+                     copyPanel runCopyPanel: () -> Bool,
+                     frames askAboutFrames: (() -> FrameChoice)? = nil) -> SaveResult {
         canvas.finishPendingEdits()
         let url: URL
         switch Self.saveRoute(for: paintDocument.fileURL) {
-        case .panel(let message): return runPanel(message)
+        case .panel(let message): return runPanel(message) ? .saved : .notSaved
         case .write(let u): url = u
         }
-        switch confirmFlatteningFrames() {
-        case .cancel: return false
-        case .saveACopy: return runPanel(nil)
+        switch (askAboutFrames ?? confirmFlatteningFrames)() {
+        case .cancel: return .notSaved
+        // A copy, really: this used to run Save As, so the window moved onto the new
+        // file and the animation it had been opened from was quietly left behind —
+        // the opposite of what a button called "Save a Copy…" promises.
+        case .saveACopy: return runCopyPanel() ? .copied : .notSaved
         case .proceed: break
         }
         do {
@@ -413,14 +434,14 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
             // A file we have just written is a document someone may well come back to,
             // so it belongs in File ▸ Open Recent alongside the ones that were opened.
             RecentDocumentsMenu.remember(url)
-            return true
+            return .saved
         } catch {
             Dialogs.error(error.localizedDescription, window: window)
-            return false
+            return .notSaved
         }
     }
 
-    private enum FrameChoice { case proceed, saveACopy, cancel }
+    enum FrameChoice { case proceed, saveACopy, cancel }
 
     /// The file is an animation and only one frame of it is being edited. Saving over it
     /// throws the rest away, so this is the one moment to say so.
@@ -465,7 +486,11 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
     /// self-test can drive a real save — and a real refusal — with no panel on screen and
     /// no alert to dismiss, and so the sentence the test reads is the sentence a user is
     /// shown.
-    func saveAs(to proposed: URL, format: SaveFormat, quality: CGFloat) -> SaveAsOutcome {
+    ///
+    /// `asCopy` writes the picture and leaves the document alone: same file, same unsaved
+    /// changes, same frame count. That is what "Save a Copy…" says it does.
+    func saveAs(to proposed: URL, format: SaveFormat, quality: CGFloat,
+                asCopy: Bool = false) -> SaveAsOutcome {
         var url = proposed
         // The popup wins over whatever the user typed in the name field.
         if !format.extensions.contains(url.pathExtension.lowercased()) {
@@ -484,6 +509,22 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
                             + "whatever that window has done. Close that window first, or save "
                             + "this picture under a different name.")
         }
+        if asCopy {
+            // A copy aimed at the document's own file is the overwrite the user just
+            // declined by choosing a copy — for an animation, the other frames.
+            if paintDocument.fileURL.map({ Self.samePath($0, url) }) == true {
+                return .refused("That is the file this window is editing. A copy needs a "
+                                + "different name.")
+            }
+            do {
+                try Bitmap.write(paintDocument.image, to: url, format: format, quality: quality,
+                                 matte: settings.background)
+                RecentDocumentsMenu.remember(url)
+                return .wrote(url)
+            } catch {
+                return .refused(error.localizedDescription)
+            }
+        }
         do {
             try paintDocument.save(to: url, format: format, quality: quality,
                                    matte: settings.background)
@@ -499,27 +540,39 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         runSavePanel(message: message, modal: true)
     }
 
+    private func runModalCopyPanel() -> Bool {
+        runSavePanel(message: nil, modal: true, asCopy: true)
+    }
+
+    /// Same file whatever the spelling: /tmp and /private/tmp, a symlinked folder.
+    static func samePath(_ a: URL, _ b: URL) -> Bool {
+        a.resolvingSymlinksInPath().standardizedFileURL.path
+            == b.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
     /// The save panel itself. `message` is the line across the top, used when ⌘S had to
     /// divert here rather than being asked for. Returns whether a file was written —
     /// which as a sheet is not yet known, so false.
     @discardableResult
-    private func runSavePanel(message: String?, modal: Bool = false) -> Bool {
+    private func runSavePanel(message: String?, modal: Bool = false, asCopy: Bool = false) -> Bool {
         let panel = NSSavePanel()
         if let message { panel.message = message }
+        if asCopy { panel.title = "Save a Copy" }
         let options = SaveOptionsView()
         options.panel = panel
         let existing = SaveFormat.forExtension(paintDocument.fileURL?.pathExtension ?? "") ?? lastFormat
         options.select(existing)
         panel.accessoryView = options
         if let t = existing.utType { panel.allowedContentTypes = [t] }
-        panel.nameFieldStringValue = paintDocument.fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        let baseName = paintDocument.fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        panel.nameFieldStringValue = asCopy ? "\(baseName) copy" : baseName
         panel.canCreateDirectories = true
         let write: (NSApplication.ModalResponse) -> Bool = { [self] response in
             guard response == .OK, let url = panel.url else { return false }
             let format = options.format
             lastQuality = options.quality
             lastFormat = format
-            switch saveAs(to: url, format: format, quality: options.quality) {
+            switch saveAs(to: url, format: format, quality: options.quality, asCopy: asCopy) {
             case .wrote:
                 return true
             case .refused(let why):
@@ -654,7 +707,7 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
     @IBAction func removeBackground(_ sender: Any?) {
         canvas.finishPendingEdits()
         do {
-            try paintDocument.removeBackground()
+            try paintDocument.removeBackground(mask: canvas.selection)
         } catch {
             Dialogs.error(error.localizedDescription, window: window)
         }
@@ -901,7 +954,7 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         alert.addButton(withTitle: "Cancel")
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return saveBeforeClosing(panel: runModalSavePanel)
+            return saveBeforeClosing(panel: runModalSavePanel, copyPanel: runModalCopyPanel)
         case .alertSecondButtonReturn:
             return true
         default:
@@ -921,11 +974,20 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
     ///
     /// `panel` is handed in so the self-test can drive this branch without a panel on
     /// screen — the same seam `performSave` uses.
-    func saveBeforeClosing(panel runPanel: (String?) -> Bool) -> Bool {
+    func saveBeforeClosing(panel runPanel: (String?) -> Bool,
+                           copyPanel runCopyPanel: () -> Bool = { false },
+                           frames: (() -> FrameChoice)? = nil) -> Bool {
         // A save that was cancelled or that failed leaves the document dirty, and must
         // not let the window close over it. Both halves are checked: the panel reports
         // what it did, the document reports where it stands.
-        performSave(panel: runPanel) && !paintDocument.isDirty
+        switch performSave(panel: runPanel, copyPanel: runCopyPanel, frames: frames) {
+        case .notSaved: return false
+        case .saved: return !paintDocument.isDirty
+        // The document is still dirty by design — its own file was deliberately left
+        // alone — but the work is on disk, in the copy, which is what the user asked
+        // for when they chose it over closing without saving.
+        case .copied: return true
+        }
     }
 
     func windowWillClose(_ notification: Notification) {

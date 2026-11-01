@@ -141,7 +141,7 @@ final class CanvasView: NSView {
         super.init(frame: CGRect(origin: .zero, size: document.pixelSize))
         wantsLayer = true
         clipsToBounds = true
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(Self.acceptedDragTypes)
         resizeToImage()
     }
 
@@ -878,12 +878,7 @@ final class CanvasView: NSView {
 
     private func startTextEditing(at p: CGPoint) {
         textOrigin = p
-        let field = NSTextField(frame: CGRect(x: 0, y: 0,
-                                              width: max(120, bounds.width - p.x * zoom),
-                                              height: settings.font.pointSize * zoom * 1.6))
-        field.font = NSFont(descriptor: settings.font.fontDescriptor, size: settings.font.pointSize * zoom)
-            ?? settings.font
-        field.textColor = settings.foreground
+        let field = NSTextField(frame: .zero)
         field.drawsBackground = true
         field.backgroundColor = NSColor(white: 1, alpha: 0.65)
         field.isBordered = true
@@ -898,13 +893,31 @@ final class CanvasView: NSView {
         // shortcut for as long as it sat there. The delegate covers that case.
         field.delegate = self
         field.placeholderString = "Type, then press Return"
+        textField = field
+        styleTextEditor()
+        addSubview(field)
+        window?.makeFirstResponder(field)
+    }
+
+    /// Give the open text box the font and colour the commit will draw with, sized and
+    /// placed for the current zoom.
+    ///
+    /// Called when the box opens AND whenever the tool settings change while it is open.
+    /// It used to happen only at opening, so picking another font or colour with a box
+    /// on the canvas changed what Return drew but not what the box showed: you typed in
+    /// one font and got another.
+    func styleTextEditor() {
+        guard let field = textField else { return }
+        let p = textOrigin
+        field.setFrameSize(CGSize(width: max(120, bounds.width - p.x * zoom),
+                                  height: settings.font.pointSize * zoom * 1.6))
+        field.font = NSFont(descriptor: settings.font.fontDescriptor, size: settings.font.pointSize * zoom)
+            ?? settings.font
+        field.textColor = settings.foreground
         // Placed by its text rather than by its frame, now that the border and the
         // cell's padding are known: what is typed sits exactly where the commit draws it.
         let inset = Self.textInset(of: field)
         field.setFrameOrigin(CGPoint(x: p.x * zoom - inset.width, y: p.y * zoom - inset.height))
-        addSubview(field)
-        textField = field
-        window?.makeFirstResponder(field)
     }
 
     /// The editor, while there is one. Readable so the self-test can hold the box the
@@ -1090,17 +1103,56 @@ final class CanvasView: NSView {
 
     // MARK: - Dropped files
 
-    private func droppedImageURL(_ sender: NSDraggingInfo) -> URL? {
-        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                                               options: nil) as? [URL],
+    /// Files, and the two other ways a picture arrives by drag. It used to be file URLs
+    /// alone, so an image dragged out of a browser or out of Photos — which hand over
+    /// the picture's bytes, or a promise to write a file, but no file — showed the
+    /// no-entry cursor and was refused.
+    static let acceptedDragTypes: [NSPasteboard.PasteboardType] =
+        [.fileURL, .png, .tiff, NSPasteboard.PasteboardType(UTType.image.identifier)]
+            + NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+
+    private static func droppedImageURL(on pb: NSPasteboard) -> URL? {
+        guard let urls = pb.readObjects(forClasses: [NSURL.self],
+                                        options: [.urlReadingFileURLsOnly: true]) as? [URL],
               let url = urls.first else { return nil }
         let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
         guard type?.conforms(to: .image) == true else { return nil }
         return url
     }
 
+    /// Picture bytes carried on the pasteboard itself — what a browser puts there.
+    ///
+    /// Only data whose declared type is an image is read, and never through a file URL:
+    /// `NSImage` would happily read a dropped PDF or a text file's icon, and a drop that
+    /// was refused for being the wrong kind of file must stay refused.
+    static func droppedImageData(on pb: NSPasteboard) -> CGImage? {
+        for type in pb.types ?? [] where type != .fileURL {
+            guard let ut = UTType(type.rawValue), ut.conforms(to: .image),
+                  let data = pb.data(forType: type),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let img = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
+            return Bitmap.canonical(img)
+        }
+        return nil
+    }
+
+    /// Promises to write an image file once the drop lands: Photos, and most browsers.
+    private static func droppedImagePromises(on pb: NSPasteboard) -> [NSFilePromiseReceiver] {
+        let receivers = pb.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil)
+            as? [NSFilePromiseReceiver] ?? []
+        return receivers.filter { r in
+            r.fileTypes.contains { UTType($0)?.conforms(to: .image) == true }
+        }
+    }
+
+    /// Whether this pasteboard holds something a drop would turn into a picture.
+    static func canAcceptDrop(from pb: NSPasteboard) -> Bool {
+        droppedImageURL(on: pb) != nil || !droppedImagePromises(on: pb).isEmpty
+            || droppedImageData(on: pb) != nil
+    }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        droppedImageURL(sender) != nil ? .copy : []
+        Self.canAcceptDrop(from: sender.draggingPasteboard) ? .copy : []
     }
 
     /// What a dropped file came to. Reported rather than acted on, because the alert for
@@ -1125,16 +1177,70 @@ final class CanvasView: NSView {
     func acceptDrop(url: URL?, at point: CGPoint) -> DropResult {
         guard let url else { return .notAnImageFile }
         guard let img = Bitmap.load(url: url) else { return .unreadable(url.lastPathComponent) }
+        placeDropped(img, at: point)
+        return .placed
+    }
+
+    /// The synchronous half of a drop: a file, or picture bytes on the pasteboard. A
+    /// promise has to be waited for and is handled by `performDragOperation`.
+    @discardableResult
+    func acceptDrop(pasteboard pb: NSPasteboard, at point: CGPoint) -> DropResult {
+        if let url = Self.droppedImageURL(on: pb) { return acceptDrop(url: url, at: point) }
+        guard let img = Self.droppedImageData(on: pb) else { return .notAnImageFile }
+        placeDropped(img, at: point)
+        return .placed
+    }
+
+    private func placeDropped(_ img: CGImage, at point: CGPoint) {
         let origin = CGPoint(x: (point.x - CGFloat(img.width) / 2).rounded(),
                              y: (point.y - CGFloat(img.height) / 2).rounded())
         beginFloating(image: img, at: origin, actionName: "Drop Image")
-        return .placed
     }
+
+    /// Where promised files are written. Each drop gets a folder of its own so two
+    /// pictures with the same name cannot land on each other.
+    private static func promiseDestination() -> URL? {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Paintbox drops", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        return (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true))
+            .map { dir }
+    }
+
+    private static let promiseQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.qualityOfService = .userInitiated
+        return q
+    }()
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         // Drop it where it was dropped, not at the corner.
         let p = imagePoint(convert(sender.draggingLocation, from: nil))
-        switch acceptDrop(url: droppedImageURL(sender), at: p) {
+        let pb = sender.draggingPasteboard
+        // A real file wins. A promise is next, because Photos promises the full-size
+        // original and offers only a preview as bytes; the bytes are the fallback if the
+        // promise is not kept.
+        if Self.droppedImageURL(on: pb) == nil,
+           let receiver = Self.droppedImagePromises(on: pb).first,
+           let dir = Self.promiseDestination() {
+            let fallback = Self.droppedImageData(on: pb)
+            receiver.receivePromisedFiles(atDestination: dir, options: [:],
+                                          operationQueue: Self.promiseQueue) { [weak self] url, error in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if error == nil, case .placed = self.acceptDrop(url: url, at: p) {
+                        self.window?.makeFirstResponder(self)
+                    } else if let fallback {
+                        self.placeDropped(fallback, at: p)
+                        self.window?.makeFirstResponder(self)
+                    } else {
+                        Dialogs.error("Paintbox could not read \(url.lastPathComponent).", window: self.window)
+                    }
+                }
+            }
+            return true
+        }
+        switch acceptDrop(pasteboard: pb, at: p) {
         case .notAnImageFile:
             return false
         case .unreadable(let name):

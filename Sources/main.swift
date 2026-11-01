@@ -3,7 +3,83 @@ import CoreGraphics
 
 let arguments = CommandLine.arguments
 
-if arguments.contains("--selftest") {
+/// What the command line asked for, decided in one place before anything runs.
+///
+/// Each entry point used to look for its own flag and fall through to the GUI when it
+/// did not find it, so `--self-test`, `--cutout photo.jpg` with the output forgotten, or
+/// `--help` all opened a window and said nothing — on a terminal, which is exactly where
+/// nobody is looking at the Dock. A double-dash word Paintbox does not know is now an
+/// error with the usage on stderr and exit 64 (EX_USAGE).
+///
+/// Only `--` words are judged. macOS hands GUI launches arguments of its own — `-psn_…`
+/// from older launchers, `-NSSomeDefault value` and `-AppleLanguages (…)` from anything
+/// that sets a default for one run — and a bare path is a file to open. Those all still
+/// reach AppKit untouched.
+enum CommandLineRoute: Equatable {
+    case gui
+    case selftest
+    case cutout(input: String, output: String)
+    case screenshot(output: String)
+    case help
+    case usageError(String)
+
+    static let usage = """
+        usage: Paintbox                          open the app
+               Paintbox --selftest               run the self-tests, exit 0 when all pass
+               Paintbox --cutout IN OUT          remove the background from IN, write OUT
+               Paintbox --screenshot OUT.png     render the window to a PNG
+               Paintbox --help
+        """
+
+    static func parse(_ args: [String]) -> CommandLineRoute {
+        let rest = Array(args.dropFirst())
+        guard let i = rest.firstIndex(where: { $0.hasPrefix("--") || $0 == "-h" }) else { return .gui }
+        let flag = rest[i]
+        // Whatever follows a flag that takes operands, and is not itself a flag.
+        func operands(_ n: Int) -> [String]? {
+            let tail = rest.dropFirst(i + 1).prefix(n)
+            guard tail.count == n, !tail.contains(where: { $0.hasPrefix("--") }) else { return nil }
+            return Array(tail)
+        }
+        let result: CommandLineRoute
+        let used: Int
+        switch flag {
+        case "--selftest":
+            result = .selftest; used = 0
+        case "--help", "-h":
+            result = .help; used = 0
+        case "--cutout":
+            guard let o = operands(2) else { return .usageError("--cutout needs an input and an output file") }
+            result = .cutout(input: o[0], output: o[1]); used = 2
+        case "--screenshot":
+            guard let o = operands(1) else { return .usageError("--screenshot needs an output file") }
+            result = .screenshot(output: o[0]); used = 1
+        default:
+            return .usageError("unknown option \(flag)")
+        }
+        // A second flag after the first is a typo or a misunderstanding, not something to
+        // silently ignore: `--cutout a b --selftest` should not quietly mean one of them.
+        if let extra = rest.dropFirst(i + 1 + used).first(where: { $0.hasPrefix("--") }) {
+            return .usageError("unexpected \(extra) after \(flag)")
+        }
+        return result
+    }
+}
+
+let route = CommandLineRoute.parse(arguments)
+
+switch route {
+case .help:
+    print(CommandLineRoute.usage)
+    exit(0)
+case .usageError(let why):
+    FileHandle.standardError.write(Data("Paintbox: \(why)\n\(CommandLineRoute.usage)\n".utf8))
+    exit(64)
+default:
+    break
+}
+
+if route == .selftest {
     // Headless-ish: AppKit is still needed (NSColor, NSFont, NSBitmapImageRep), but no
     // window is ever shown.
     let app = NSApplication.shared
@@ -90,20 +166,20 @@ enum CutoutCommand {
     }
 }
 
-if let i = arguments.firstIndex(of: "--cutout"), i + 2 < arguments.count {
+if case .cutout(let input, let output) = route {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
-    let result = CutoutCommand.run(input: URL(fileURLWithPath: arguments[i + 1]),
-                                   output: URL(fileURLWithPath: arguments[i + 2]))
+    let result = CutoutCommand.run(input: URL(fileURLWithPath: input),
+                                   output: URL(fileURLWithPath: output))
     for line in result.out { print(line) }
     if let err = result.err { FileHandle.standardError.write(Data((err + "\n").utf8)) }
     exit(result.code)
 }
 
-if let i = arguments.firstIndex(of: "--screenshot"), i + 1 < arguments.count {
+if case .screenshot(let output) = route {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    WindowShot.capture(to: arguments[i + 1])
+    WindowShot.capture(to: output)
     app.run()
 }
 

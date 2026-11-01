@@ -147,14 +147,55 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
         open(url: URL(fileURLWithPath: filename))
     }
 
+    /// The Paintbox window nearest the front, or the one opened last when none is on
+    /// screen yet. Not only visible ones: files handed over at launch are all opened
+    /// before any window has been shown, and filtering on visibility put every one of
+    /// them back in the centre — measured, with three files dropped on the Dock icon.
+    private func frontmostDocumentWindow() -> NSWindow? {
+        let ours = controllers.compactMap { $0.window }.filter { !$0.isMiniaturized }
+        return NSApp.orderedWindows.first { ours.contains($0) } ?? ours.last
+    }
+
+    static let cascadeStep: CGFloat = 24
+
+    /// Where a new window goes when `previous` is already open: one step down and right
+    /// of it, keeping its own size. A step that would hang off the bottom or the right of
+    /// the screen starts again from the top left of the visible area, so a long run of
+    /// opens never walks windows off screen.
+    static func cascadedFrame(_ frame: NSRect, after previous: NSRect, within visible: NSRect) -> NSRect {
+        var f = frame
+        f.origin.x = previous.minX + cascadeStep
+        f.origin.y = previous.maxY - cascadeStep - f.height
+        if f.maxX > visible.maxX || f.minY < visible.minY {
+            f.origin.x = visible.minX + cascadeStep
+            f.origin.y = visible.maxY - cascadeStep - f.height
+        }
+        return f
+    }
+
     func forget(_ controller: PaintWindowController) {
         controllers.removeAll { $0 === controller }
     }
 
     private func present(_ doc: PaintDocument) {
         let c = PaintWindowController(document: doc)
+        // Every window used to be centred, so opening three files put three windows
+        // exactly on top of one another and it looked as though only one had opened.
+        // Each one now steps down and right from the frontmost Paintbox window, the way
+        // every document app on the Mac does it.
+        //
+        // The previous window is found BEFORE this one joins the list, and the frame is
+        // set AFTER `showWindow`: set before it, the frame was put back in the centre on
+        // the way on screen (measured on the real app, not assumed). Nothing has drawn
+        // yet within this event, so the window never visibly jumps.
+        let previous = frontmostDocumentWindow()
         adopt(c)
         c.showWindow(nil)
+        if let window = c.window, let previous,
+           let visible = (previous.screen ?? NSScreen.main)?.visibleFrame {
+            window.setFrame(Self.cascadedFrame(window.frame, after: previous.frame, within: visible),
+                            display: false)
+        }
         c.window?.makeKeyAndOrderFront(nil)
     }
 
