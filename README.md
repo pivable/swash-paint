@@ -39,7 +39,7 @@ angles, an undo stack with no ceiling, an intricate selection outline, a panel l
 pointing at a closed window — and the ways it could throw work away or mislabel it
 quietly: two windows aimed at one file, a ⌘S that would change a file's format under you,
 a `--cutout` that wrote bytes its output was not named for. It prints a `PASS`/`FAIL` line
-per check — 192 of them — and exits non-zero on any failure.
+per check — 199 of them — and exits non-zero on any failure.
 `--screenshot` builds the real window, draws into it, and writes what AppKit renders to a
 PNG, so you can see the interface without screen-recording permission.
 
@@ -110,7 +110,9 @@ two quarter turns are there; 180° and Rotate by Angle are menu-only):
   tolerance so a JPEG's noisy "white" still counts as one colour; if that corner is
   transparent it trims on alpha alone.
 - **Remove Background** — Vision `VNGenerateForegroundInstanceMaskRequest`, on device.
-  Produces real transparency, and it undoes like anything else.
+  Produces real transparency, and it undoes like anything else. With a selection it works
+  on the selection only, like the filters below: Vision is shown the selected area, and
+  nothing outside it changes. Selecting one person in a group photo is how you say which.
 
 **Editing the pixels**, all on the selection if there is one and on the whole picture if
 there is not. The *destructive* verbs are the other way round: Crop, Cut, Delete
@@ -147,8 +149,8 @@ half a gigabyte. Such a selection is shown as a **tint over the selected pixels*
 drawn through the mask itself in one image draw, with a plain box round its extent; the
 ants animation switches off while it is up, because a tint has no dashes to march.
 
-**Paste floats.** Pasted content — from the clipboard or from a file dropped onto the
-canvas — arrives as a floating item above the picture. Drag it to move it, drag a corner
+**Paste floats.** Pasted content — from the clipboard, from a file dropped onto the
+canvas, or from a picture dragged straight out of a browser or Photos — arrives as a floating item above the picture. Drag it to move it, drag a corner
 to scale it, hold Shift to keep its shape. It lands when you click away, press Return, or
 start any other operation; Escape throws it away. The whole thing — move, scale and
 stamp — is one undo step, because nothing is written to the bitmap until it commits.
@@ -298,7 +300,8 @@ The corner reading is the point. It distinguishes *"Vision found a subject and c
 *"Vision found nothing and the file came out unchanged"*, which otherwise look identical to a
 script. Exit codes: **0** cut out, **3** a file was written but the corner is still opaque,
 **4** no subject found, **2** the input could not be read, **5** the output name is not a format
-Paintbox can write, **6** the writer failed.
+Paintbox can write, **6** the writer failed, **64** the command line was wrong — an unknown
+`--flag` or a missing file name prints the usage instead of quietly opening the app.
 
 **The output format comes from the output's name**, through the same table the Save As panel
 offers: `.png .jpg .heic .avif .tiff .gif .bmp`. Anything else is refused, with the list, rather

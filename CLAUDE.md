@@ -31,7 +31,7 @@ and a declarative layer fights you for no gain.
 ./Paintbox.app/Contents/MacOS/Paintbox --selftest
 ```
 
-**192 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
+**199 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
 the code ran: that right-angle rotation is lossless, that alpha survives all seven save
 formats, that a blur leaves every pixel outside the selection untouched, that undo restores
 byte for byte, and that background removal actually finds a subject.
@@ -103,19 +103,14 @@ quarantine flag to fight.
 | | |
 |---|---|
 | `README.md` | For users: what it does, shortcuts, rough edges. Keep it TRUE — three claims in it were false once and that is how you lose trust on a first impression. |
-| `KNOWN-ISSUES.md` | **The six open bugs.** Published deliberately rather than hidden. Start here. |
+| `KNOWN-ISSUES.md` | What the completeness critic found, and what became of each. None open since 2 Nov 2026. |
 | `REVIEW-BACKLOG.md` | How the review was run and what it cost. History, not a to-do list. |
 | this file | How to work on it. |
 
 ## What to pick up next
 
-The six in `KNOWN-ISSUES.md`. Two are more than polish:
-
-- **"Save a Copy…" is really a Save As**, so the window ends up editing the copy and the
-  original is quietly abandoned.
-- **Remove Background ignores an active selection** while Blur, Pixelate and Adjustments all
-  honour one. That is an inconsistency in what the selection means, not a missing feature.
-
-After those, the honest list of what this app still is not is in `README.md` under *Deliberately
-not built* and *Known rough edges* — most usefully: the selection cannot be picked up and moved,
-there is no feathering, and there are no layers beyond a single floating item.
+`KNOWN-ISSUES.md` has nothing open: the six the critic left were fixed on 2 Nov 2026, each
+with a self-test. The honest list of what this app still is not is in `README.md` under
+*Deliberately not built* and *Known rough edges* — most usefully: the selection cannot be
+picked up and moved, there is no feathering, and there are no layers beyond a single
+floating item.
