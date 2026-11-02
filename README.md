@@ -13,6 +13,29 @@ Vision's subject lifter runs on the machine, with no network call and no API bil
 open Paintbox.app
 ```
 
+## Install, update, uninstall
+
+**Install.** Needs macOS 14 or newer. In Terminal:
+
+```
+curl -fsSL https://raw.githubusercontent.com/pivable/paintbox/main/install.sh | bash
+```
+
+It fetches the source, builds it on your Mac, runs the self-test, and only then copies
+`Paintbox.app` into Applications. Built on your own machine, it is never quarantined, so it
+opens without a security warning. If it says the command line tools are missing, run
+`xcode-select --install`, let it finish, and run the command again. Xcode itself is not needed.
+
+**Update.** Run the same command again. It builds the latest version and replaces the copy in
+Applications. The app does not check for updates by itself.
+
+**Uninstall.** Quit Paintbox and drag it from Applications to the Bin. It keeps no settings or
+data anywhere else. At most macOS remembers its window size, which this removes:
+
+```
+rm -f ~/Library/Preferences/com.pivable.paintbox.plist
+```
+
 ## Building
 
 There is no Xcode on this machine, only the Command Line Tools, so there is no
