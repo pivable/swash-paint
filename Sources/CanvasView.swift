@@ -1172,7 +1172,7 @@ final class CanvasView: NSView {
     /// zero-byte, truncated or unreadable file still shows the copy cursor and still has
     /// its drop accepted — and this used to be one guard ending in a bare `return false`,
     /// so nothing happened and nothing was said. The same file through File ▸ Open says
-    /// "Paintbox could not read X." The two routes now agree.
+    /// "Swash Paint could not read X." The two routes now agree.
     @discardableResult
     func acceptDrop(url: URL?, at point: CGPoint) -> DropResult {
         guard let url else { return .notAnImageFile }
@@ -1201,7 +1201,7 @@ final class CanvasView: NSView {
     /// pictures with the same name cannot land on each other.
     private static func promiseDestination() -> URL? {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Paintbox drops", isDirectory: true)
+            .appendingPathComponent("Swash Paint drops", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         return (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true))
             .map { dir }
@@ -1234,7 +1234,7 @@ final class CanvasView: NSView {
                         self.placeDropped(fallback, at: p)
                         self.window?.makeFirstResponder(self)
                     } else {
-                        Dialogs.error("Paintbox could not read \(url.lastPathComponent).", window: self.window)
+                        Dialogs.error("Swash Paint could not read \(url.lastPathComponent).", window: self.window)
                     }
                 }
             }
@@ -1246,7 +1246,7 @@ final class CanvasView: NSView {
         case .unreadable(let name):
             // The same wording File ▸ Open uses, so one broken file reads the same
             // whichever way it reached the app.
-            Dialogs.error("Paintbox could not read \(name).", window: window)
+            Dialogs.error("Swash Paint could not read \(name).", window: window)
             return false
         case .placed:
             window?.makeFirstResponder(self)

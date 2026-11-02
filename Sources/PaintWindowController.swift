@@ -349,7 +349,7 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
     }
 
     private func updateTitle() {
-        window?.title = "\(paintDocument.displayName) — Paintbox"
+        window?.title = "\(paintDocument.displayName) — Swash Paint"
         window?.isDocumentEdited = paintDocument.isDirty
         window?.representedURL = paintDocument.fileURL
     }
@@ -465,13 +465,13 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
     static func saveRoute(for url: URL?) -> SaveRoute {
         // No file yet: Save is Save As, whoever asked for it.
         guard let url else { return .panel(nil) }
-        // Paintbox reads far more formats than it can write — the Open panel's `.image`
+        // Swash Paint reads far more formats than it can write — the Open panel's `.image`
         // catch-all lets .webp, .psd, .dng and friends in on purpose. Saving one under
         // its own name would leave PNG bytes in a file the rest of the system still
         // believes is a WebP. So ⌘S opens the save panel instead and says why: the
         // format is changing, and the user gets to see it change.
         guard SaveFormat.forExtension(url.pathExtension) != nil else {
-            return .panel("Paintbox can open \(PaintDocument.describe(extension: url.pathExtension)) "
+            return .panel("Swash Paint can open \(PaintDocument.describe(extension: url.pathExtension)) "
                           + "but cannot write them. Choose a format to save as instead — "
                           + "the original file is left alone.")
         }
@@ -547,7 +547,7 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         guard n > 1 else { return .proceed }
         let alert = NSAlert()
         alert.messageText = "“\(paintDocument.displayName)” has \(n) frames."
-        alert.informativeText = "Paintbox edits one frame at a time. Saving over this file keeps "
+        alert.informativeText = "Swash Paint edits one frame at a time. Saving over this file keeps "
             + "the frame you are editing and throws the other \(n - 1) away."
         alert.addButton(withTitle: "Save One Frame")
         alert.addButton(withTitle: "Save a Copy…")
@@ -598,7 +598,7 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         // in the way so the sentence can be acted on.
         if let other = PaintboxApp.shared.existingController(for: url), other !== self {
             return .refused("“\(other.paintDocument.displayName)” is already open in another "
-                            + "Paintbox window. Saving this picture over it would throw away "
+                            + "Swash Paint window. Saving this picture over it would throw away "
                             + "whatever that window has done. Close that window first, or save "
                             + "this picture under a different name.")
         }

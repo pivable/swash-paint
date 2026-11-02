@@ -97,6 +97,9 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
             present(PaintDocument(width: 1024, height: 768, fill: .white))
         }
         NSApp.activate(ignoringOtherApps: true)
+        // Before the check is scheduled, so a "never check" chosen in the old app holds.
+        UpdateController.shared.preferences.adoptLegacySetting(
+            from: UserDefaults.standard.persistentDomain(forName: AppIdentity.legacyBundleID))
         UpdateController.shared.scheduleAutomaticCheck()
     }
 
@@ -121,7 +124,7 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
     /// ⌘Q used to throw away unsaved work without a word.
     ///
     /// `NSApplication.terminate(_:)` does NOT send `windowShouldClose(_:)` to open
-    /// windows, and Paintbox is not an NSDocument app, so with no
+    /// windows, and Swash Paint is not an NSDocument app, so with no
     /// `applicationShouldTerminate` at all the careful Save / Don't Save / Cancel alert
     /// was reachable by ⌘W and by nothing else. Every window with unsaved work is asked
     /// here, in front-to-back order, and any Cancel stops the quit.
@@ -156,7 +159,7 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
         open(url: URL(fileURLWithPath: filename))
     }
 
-    /// The Paintbox window nearest the front, or the one opened last when none is on
+    /// The Swash Paint window nearest the front, or the one opened last when none is on
     /// screen yet. Not only visible ones: files handed over at launch are all opened
     /// before any window has been shown, and filtering on visibility put every one of
     /// them back in the centre — measured, with three files dropped on the Dock icon.
@@ -190,7 +193,7 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
         let c = PaintWindowController(document: doc)
         // Every window used to be centred, so opening three files put three windows
         // exactly on top of one another and it looked as though only one had opened.
-        // Each one now steps down and right from the frontmost Paintbox window, the way
+        // Each one now steps down and right from the frontmost Swash Paint window, the way
         // every document app on the Mac does it.
         //
         // The previous window is found BEFORE this one joins the list, and the frame is
@@ -275,7 +278,7 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
         // `PaintDocument.open` also records how many frames the file really had, which
         // is what stops a 40-frame GIF being overwritten with one frame in silence.
         guard let doc = PaintDocument.open(url: url) else {
-            Dialogs.error("Paintbox could not read \(url.lastPathComponent).", window: NSApp.keyWindow)
+            Dialogs.error("Swash Paint could not read \(url.lastPathComponent).", window: NSApp.keyWindow)
             return false
         }
         present(doc)
@@ -309,7 +312,7 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
     static func imageFromPasteboard(from pb: NSPasteboard = .general) -> CGImage? {
         // Our own copy, still the one on the board: hand back the picture itself rather
         // than asking the promise to encode a PNG so that the very next line can decode
-        // it again. Copy-and-paste inside Paintbox then encodes nothing at all.
+        // it again. Copy-and-paste inside Swash Paint then encodes nothing at all.
         if let ours = PasteboardImage.promised(on: pb) { return Bitmap.canonical(ours) }
         if let data = pb.data(forType: .png) ?? pb.data(forType: .tiff),
            let rep = NSBitmapImageRep(data: data), let cg = rep.cgImage {
@@ -325,7 +328,7 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
 
     @IBAction func showHelp(_ sender: Any?) {
         let alert = NSAlert()
-        alert.messageText = "Paintbox"
+        alert.messageText = "Swash Paint"
         alert.informativeText = """
         Tools are down the left with single-key shortcuts: \
         P pencil, B brush, E eraser, L line, A arrow, R rectangle, O ellipse, \
@@ -363,18 +366,18 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
         // App menu
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        add(appMenu, "About Paintbox", #selector(showAbout(_:)), "", [], target: self)
+        add(appMenu, "About Swash Paint", #selector(showAbout(_:)), "", [], target: self)
         add(appMenu, "Check for Updates…", #selector(UpdateController.checkForUpdates(_:)), "", [],
             target: UpdateController.shared)
         add(appMenu, "Check for Updates Automatically", #selector(UpdateController.toggleAutomaticChecks(_:)),
             "", [], target: UpdateController.shared)
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide Paintbox", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide Swash Paint", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Paintbox", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit Swash Paint", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
@@ -509,7 +512,7 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
         // Help
         let helpItem = NSMenuItem()
         let helpMenu = NSMenu(title: "Help")
-        add(helpMenu, "Paintbox Quick Help", #selector(showHelp(_:)), "?", [.command], target: self)
+        add(helpMenu, "Swash Paint Quick Help", #selector(showHelp(_:)), "?", [.command], target: self)
         helpItem.submenu = helpMenu
         mainMenu.addItem(helpItem)
 
@@ -610,7 +613,7 @@ final class RecentDocumentsMenu: NSObject, NSMenuDelegate {
     }
 }
 
-/// The picture Paintbox last put on a pasteboard, kept until somebody asks for the bytes
+/// The picture Swash Paint last put on a pasteboard, kept until somebody asks for the bytes
 /// or another app takes the clipboard over.
 ///
 /// ⌘C used to encode the copy as PNG *and* as TIFF before it returned, on the main

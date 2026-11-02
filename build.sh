@@ -1,6 +1,8 @@
 #!/bin/bash
 #
-# Builds Paintbox.app. This is the only command you need.
+# Builds "Swash Paint.app". This is the only command you need.
+#
+# The bundle name has a space in it; every path below is quoted for that reason.
 #
 # There is no Xcode on this machine, only the Command Line Tools, so there is no
 # .xcodeproj and no xcodebuild: swiftc compiles the sources straight into the
@@ -10,8 +12,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP="Paintbox.app"
-BIN="$APP/Contents/MacOS/Paintbox"
+APP="Swash Paint.app"
+BIN="$APP/Contents/MacOS/SwashPaint"
+ZIP="SwashPaint.zip"
 SDK="$(xcrun --show-sdk-path)"
 
 # --universal builds for Intel as well as Apple Silicon. Off by default because
@@ -19,7 +22,7 @@ SDK="$(xcrun --show-sdk-path)"
 # to somebody else, since an arm64-only app does not launch AT ALL on an Intel
 # Mac and the failure gives the user nothing to go on.
 #
-# --package produces Paintbox.zip and prints the one command a recipient runs to
+# --package produces SwashPaint.zip and prints the one command a recipient runs to
 # make the app openable. See the note that command prints for why it is needed.
 UNIVERSAL=0
 PACKAGE=0
@@ -69,9 +72,9 @@ fi
 # so it runs exactly the same inside install.sh on the user's machine. A universal
 # binary runs here too: the loader picks this Mac's half.
 echo "==> Drawing the app icon"
-ICONSET="$(mktemp -d)/Paintbox.iconset"
+ICONSET="$(mktemp -d)/SwashPaint.iconset"
 "$BIN" --iconset "$ICONSET" | sed 's/^/    /'
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Paintbox.icns"
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/SwashPaint.icns"
 rm -rf "$(dirname "$ICONSET")"
 
 echo "==> Writing Info.plist"
@@ -83,17 +86,17 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>Paintbox</string>
+    <string>SwashPaint</string>
     <key>CFBundleIconFile</key>
-    <string>Paintbox</string>
+    <string>SwashPaint</string>
     <key>CFBundleIdentifier</key>
-    <string>com.pivable.paintbox</string>
+    <string>com.pivable.swashpaint</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Paintbox</string>
+    <string>Swash Paint</string>
     <key>CFBundleDisplayName</key>
-    <string>Paintbox</string>
+    <string>Swash Paint</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -109,7 +112,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>NSSupportsAutomaticTermination</key>
     <false/>
     <key>NSHumanReadableCopyright</key>
-    <string>Paintbox</string>
+    <string>Swash Paint, a free paint app for Mac</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
@@ -136,27 +139,32 @@ PLIST
 
 # Which source this was built from, for About and for Check for Updates. Every push to
 # main is a release and nothing bumps a version number, so the commit is the version.
-# install.sh passes PAINTBOX_COMMIT when it fetched a tarball, which has no .git; a
+# install.sh passes SWASHPAINT_COMMIT when it fetched a tarball, which has no .git; a
 # clone answers for itself. git is asked only when this folder IS the top of a work
 # tree, so a tarball unpacked inside somebody else's repository does not borrow its
 # commit. Anything that is not forty hex digits is left out, and the app then says it
 # cannot tell, rather than claiming to be up to date.
-COMMIT="${PAINTBOX_COMMIT:-}"
+COMMIT="${SWASHPAINT_COMMIT:-}"
 COMMIT_DATE=""
 if [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; then
     [ -n "$COMMIT" ] || COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
     COMMIT_DATE="$(git log -1 --format=%cI "$COMMIT" 2>/dev/null || true)"
 fi
 if [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-    plutil -insert PaintboxCommit -string "$COMMIT" "$APP/Contents/Info.plist"
-    [ -z "$COMMIT_DATE" ] || plutil -insert PaintboxCommitDate -string "$COMMIT_DATE" "$APP/Contents/Info.plist"
+    plutil -insert SwashPaintCommit -string "$COMMIT" "$APP/Contents/Info.plist"
+    [ -z "$COMMIT_DATE" ] || plutil -insert SwashPaintCommitDate -string "$COMMIT_DATE" "$APP/Contents/Info.plist"
     echo "    commit $COMMIT"
 else
-    echo "    commit unknown: no git work tree here and no PAINTBOX_COMMIT"
+    echo "    commit unknown: no git work tree here and no SWASHPAINT_COMMIT"
 fi
-plutil -insert PaintboxBuildDate -string "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$APP/Contents/Info.plist"
+plutil -insert SwashPaintBuildDate -string "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$APP/Contents/Info.plist"
 
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+# The installer travels inside the bundle for one reason: the self-test runs its removal
+# of an old Paintbox.app against a fake one in a scratch folder, and a test of a copy of
+# that logic would prove nothing about the script people actually run.
+cp install.sh "$APP/Contents/Resources/install.sh"
 
 echo "==> Ad-hoc signing"
 codesign --force --sign - --timestamp=none "$APP"
@@ -166,20 +174,20 @@ echo "==> Built $(pwd)/$APP"
 
 if [ "$PACKAGE" -eq 1 ]; then
     echo "==> Packaging"
-    rm -f Paintbox.zip
+    rm -f "$ZIP"
     # ditto, not zip: it preserves the bundle's extended attributes and its
     # signature. A plain `zip` can break the signature and the app then refuses
     # to launch with an error that blames the wrong thing.
-    ditto -c -k --keepParent "$APP" Paintbox.zip
-    echo "    $(pwd)/Paintbox.zip  ($(du -h Paintbox.zip | cut -f1))"
+    ditto -c -k --keepParent "$APP" "$ZIP"
+    echo "    $(pwd)/$ZIP  ($(du -h "$ZIP" | cut -f1))"
     cat <<'NOTE'
 
     HAND THE RECIPIENT THIS, VERBATIM:
 
-      1. Unzip Paintbox.zip.
+      1. Unzip SwashPaint.zip.
       2. Open Terminal and run, with the path to where you put it:
 
-           xattr -dr com.apple.quarantine /Applications/Paintbox.app
+           xattr -dr com.apple.quarantine "/Applications/Swash Paint.app"
 
       3. Open the app normally.
 

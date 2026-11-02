@@ -58,7 +58,7 @@ extension PaintDocument {
         guard r.width >= 1, r.height >= 1 else { return }
         // Cropping to the whole canvas keeps every pixel and every dimension, so there is
         // nothing to undo and nothing new to save. Select All then Crop to Selection used
-        // to leave the document edited, and Paintbox then offered to save a file
+        // to leave the document edited, and Swash Paint then offered to save a file
         // byte-identical to the one already on disk. `resizeImage` and `setCanvasSize`
         // have always refused their own no-op; this is the same guard, one operation over.
         guard r != bounds else { return }

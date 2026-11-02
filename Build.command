@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Build.command — double-click this in Finder to build Paintbox and open it.
+# Build.command — double-click this in Finder to build Swash Paint and open it.
 #
 # WHY A .command FILE AT ALL. Finder will run a `.command` in Terminal when you
 # double-click it, which a plain `.sh` will not: that one opens in a text editor
@@ -22,7 +22,7 @@ set -euo pipefail
 # lives, so every relative path would otherwise be wrong.
 cd "$(dirname "$0")"
 
-printf '\n  Building Paintbox in %s\n\n' "$(pwd)"
+printf '\n  Building Swash Paint in %s\n\n' "$(pwd)"
 
 if ! command -v swiftc >/dev/null 2>&1; then
     cat <<'MISSING'
@@ -54,11 +54,11 @@ fi
 
 echo
 echo "  Checking it actually works before opening it..."
-if ./Paintbox.app/Contents/MacOS/Paintbox --selftest >/tmp/paintbox-selftest.log 2>&1; then
-    tail -1 /tmp/paintbox-selftest.log | sed 's/^/  /'
+if "./Swash Paint.app/Contents/MacOS/SwashPaint" --selftest >/tmp/swashpaint-selftest.log 2>&1; then
+    tail -1 /tmp/swashpaint-selftest.log | sed 's/^/  /'
 else
     echo "  THE SELF-TEST FAILED. Not opening the app."
-    echo "  The full log is at /tmp/paintbox-selftest.log"
+    echo "  The full log is at /tmp/swashpaint-selftest.log"
     echo
     echo "  Press Return to close this window."
     read -r _
@@ -66,9 +66,9 @@ else
 fi
 
 echo
-echo "  Opening Paintbox. An app you built yourself carries no quarantine flag,"
+echo "  Opening Swash Paint. An app you built yourself carries no quarantine flag,"
 echo "  so macOS does not challenge it."
 echo
-open Paintbox.app
+open "Swash Paint.app"
 
 echo "  Done. You can close this window."

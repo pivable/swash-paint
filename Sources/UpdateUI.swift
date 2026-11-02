@@ -49,7 +49,7 @@ final class UpdateController: NSObject {
             case .success(.upToDate(let latest)):
                 guard userInitiated else { return }
                 let alert = NSAlert()
-                alert.messageText = "Paintbox is up to date"
+                alert.messageText = "Swash Paint is up to date"
                 alert.informativeText = "This copy (\(BuildStamp.current.aboutVersion())) is the latest on GitHub"
                     + (latest.date.map { ", from \(BuildStamp.display($0))." } ?? ".")
                 alert.runModal()
@@ -90,7 +90,7 @@ final class UpdateController: NSObject {
     private func offer(_ verdict: UpdateVerdict) {
         guard case .available = verdict else { return }
         let alert = NSAlert()
-        alert.messageText = "A new version of Paintbox is available"
+        alert.messageText = "A new version of Swash Paint is available"
         alert.informativeText = UpdateController.describe(verdict)
         alert.addButton(withTitle: "Update")
         alert.addButton(withTitle: "Later")
@@ -126,13 +126,13 @@ final class UpdateController: NSObject {
     private func beginUpdate() {
         guard !installing else { return }
         guard let destination = UpdateInstall.destination(forBundle: Bundle.main.bundleURL) else {
-            return failNow("Paintbox cannot tell which folder it was installed in, so it cannot update itself. "
+            return failNow("Swash Paint cannot tell which folder it was installed in, so it cannot update itself. "
                            + "Run the install command in Terminal instead:\n\n    \(GitHub.installCommand)",
-                           title: "Paintbox cannot update itself here")
+                           title: "Swash Paint cannot update itself here")
         }
         if let problem = UpdateInstall.destinationProblem(destination: destination,
                                                           isWritable: FileManager.default.isWritableFile(atPath:)) {
-            return failNow(problem, title: "Paintbox cannot be replaced where it is")
+            return failNow(problem, title: "Swash Paint cannot be replaced where it is")
         }
         guard UpdateController.commandLineToolsPresent() else {
             let alert = NSAlert()
@@ -184,20 +184,20 @@ final class UpdateController: NSObject {
     }
 
     /// The same install.sh the README's one-line command runs, fetched the same way.
-    /// PAINTBOX_INSTALLER, a local path, stands in for it when testing an installer that is
+    /// SWASHPAINT_INSTALLER, a local path, stands in for it when testing an installer that is
     /// not on GitHub yet; nothing in the app sets it.
     private func fetchInstaller(_ done: @escaping (URL?, String?) -> Void) {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("paintbox-update-\(getpid())", isDirectory: true)
+            .appendingPathComponent("swashpaint-update-\(getpid())", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let target = dir.appendingPathComponent("install.sh")
         try? FileManager.default.removeItem(at: target)
-        if let local = ProcessInfo.processInfo.environment["PAINTBOX_INSTALLER"], !local.isEmpty {
+        if let local = ProcessInfo.processInfo.environment["SWASHPAINT_INSTALLER"], !local.isEmpty {
             do {
                 try FileManager.default.copyItem(at: URL(fileURLWithPath: local), to: target)
                 done(target, nil)
             } catch {
-                done(nil, "PAINTBOX_INSTALLER could not be read: \(error.localizedDescription)")
+                done(nil, "SWASHPAINT_INSTALLER could not be read: \(error.localizedDescription)")
             }
             return
         }
@@ -274,10 +274,10 @@ final class UpdateController: NSObject {
             let tests = log.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
                 .first { $0.hasSuffix("failed") && $0.contains("passed") }
             let alert = NSAlert()
-            alert.messageText = "Paintbox is updated"
+            alert.messageText = "Swash Paint is updated"
             alert.informativeText = "The new version was built on this Mac"
                 + (tests.map { ", passed its self-test (\($0))," } ?? "")
-                + " and installed in \(destination.path). It takes over when Paintbox next opens."
+                + " and installed in \(destination.path). It takes over when Swash Paint next opens."
             alert.addButton(withTitle: "Relaunch Now")
             alert.addButton(withTitle: "Later")
             if alert.runModal() == .alertFirstButtonReturn {
@@ -294,7 +294,7 @@ final class UpdateController: NSObject {
         alert.alertStyle = .warning
         alert.messageText = "The update did not install"
         alert.informativeText = UpdateInstall.failureMessage(log: log, status: status)
-            + "\n\nThe copy of Paintbox you are using has not been changed."
+            + "\n\nThe copy of Swash Paint you are using has not been changed."
         alert.addButton(withTitle: "Show Log")
         alert.addButton(withTitle: "OK")
         if alert.runModal() == .alertFirstButtonReturn {
@@ -345,9 +345,9 @@ final class UpdateProgressWindow: NSWindow {
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 400, height: 132),
                    styleMask: [.titled], backing: .buffered, defer: false)
-        title = "Updating Paintbox"
+        title = "Updating Swash Paint"
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 132))
-        let heading = NSTextField(labelWithString: "Updating Paintbox")
+        let heading = NSTextField(labelWithString: "Updating Swash Paint")
         heading.font = .boldSystemFont(ofSize: 13)
         heading.frame = NSRect(x: 20, y: 96, width: 360, height: 18)
         spinner.style = .spinning
@@ -387,13 +387,13 @@ final class QuietUpdatePanel: NSPanel {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 320, height: 96),
                    styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
                    backing: .buffered, defer: false)
-        title = "Paintbox"
+        title = "Swash Paint"
         isFloatingPanel = true
         becomesKeyOnlyIfNeeded = true
         hidesOnDeactivate = true
         isReleasedWhenClosed = false
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 96))
-        let heading = NSTextField(labelWithString: "A new version of Paintbox is available.")
+        let heading = NSTextField(labelWithString: "A new version of Swash Paint is available.")
         heading.font = .boldSystemFont(ofSize: 12)
         heading.frame = NSRect(x: 16, y: 64, width: 290, height: 18)
         var line = ""

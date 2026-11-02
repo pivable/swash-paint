@@ -4,7 +4,7 @@ import CoreImage
 import Foundation
 import ImageIO
 
-/// `Paintbox.app/Contents/MacOS/Paintbox --selftest`
+/// `Swash Paint.app/Contents/MacOS/SwashPaint --selftest`
 ///
 /// Runs every image operation the app offers against a synthetic picture, checks the
 /// resulting pixel dimensions, alpha and corner colours, then unwinds the whole thing
@@ -94,11 +94,11 @@ enum SelfTest {
 
     static func run() -> Int {
         let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("paintbox-selftest-\(getpid())", isDirectory: true)
+            .appendingPathComponent("swashpaint-selftest-\(getpid())", isDirectory: true)
         try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        print("Paintbox self-test")
+        print("Swash Paint self-test")
         print("------------------")
 
         // ---- 1. Round trip a PNG with transparency -------------------------------
@@ -441,6 +441,9 @@ enum SelfTest {
 
         // ---- 25. Check for Updates, with no network --------------------------------
         updateChecks(tmp: tmp)
+
+        // ---- 26. The rename from Paintbox to Swash Paint ---------------------------
+        renameChecks(tmp: tmp)
 
         print("------------------")
         print("\(passes) passed, \(failures) failed")
@@ -1089,7 +1092,7 @@ enum SelfTest {
                   + "(30,30) reads \(lonelyPixel)")
     }
 
-    // MARK: - Safety: the four ways Paintbox used to lose work without saying so
+    // MARK: - Safety: the four ways Swash Paint used to lose work without saying so
 
     /// Every check here is a regression guard for something that silently destroyed the
     /// user's picture or their file. They are grouped because they share a theme rather
@@ -1210,7 +1213,7 @@ enum SelfTest {
                   + "edited document \(asksWhenDirty ? "asked about" : "NOT ASKED ABOUT")")
         app.forget(controller)
 
-        // --- A format Paintbox cannot write must not be written anyway -------------
+        // --- A format Swash Paint cannot write must not be written anyway -------------
         //
         // The open panel admits everything ImageIO reads, which is more than it writes.
         // `save` used to fall back to PNG, so ⌘S stamped PNG bytes into `logo.webp` and
@@ -1510,7 +1513,7 @@ enum SelfTest {
     }
 
 
-    // MARK: - Safety: the ways Paintbox used to be quietly WRONG
+    // MARK: - Safety: the ways Swash Paint used to be quietly WRONG
     //
     // Not "lost your work" like the section above, but "gave you something other than
     // what it said it was giving you": a square that was not square, a preview of a
@@ -2591,7 +2594,7 @@ enum SelfTest {
         }
     }
 
-    // MARK: - Cost: the ways Paintbox used to be slow enough to look broken
+    // MARK: - Cost: the ways Swash Paint used to be slow enough to look broken
 
     /// Nothing in here is a stopwatch — a machine under load would fail a timing test for
     /// no reason at all — so each check is stated as the thing that made the app slow:
@@ -3102,7 +3105,7 @@ enum SelfTest {
     /// The drop route accepts anything whose content type conforms to `.image`, so a
     /// zero-byte or garbage file shows the copy cursor and has its drop accepted — and
     /// then used to end in a bare `return false`: nothing happened and nothing was said,
-    /// while the very same file through File ▸ Open said "Paintbox could not read X."
+    /// while the very same file through File ▸ Open said "Swash Paint could not read X."
     private static func droppedFileChecks(tmp: URL) {
         let doc = PaintDocument(width: 60, height: 40, fill: .white)
         let canvas = CanvasView(document: doc, settings: ToolSettings())
@@ -3154,7 +3157,7 @@ enum SelfTest {
             check("--screenshot admits a write it could not do", false, "could not make a PNG to write")
             return
         }
-        let bad = "/no/such/dir/paintbox-shot.png"
+        let bad = "/no/such/dir/swashpaint-shot.png"
         let badSaid = WindowShot.writePNG(png, to: bad)
         let badExists = FileManager.default.fileExists(atPath: bad)
 
@@ -3723,7 +3726,7 @@ enum SelfTest {
 
         // --- Undoing back to the last save -----------------------------------
         //
-        // The dirty flag used to be one-way, so draw / save / draw / ⌘Z left Paintbox
+        // The dirty flag used to be one-way, so draw / save / draw / ⌘Z left Swash Paint
         // asking to save a picture byte-identical to the file it had just written.
         let saveURL = tmp.appendingPathComponent("dirty-flag.png")
         let saveDoc = PaintDocument(width: 32, height: 24, fill: .white)
@@ -4104,12 +4107,12 @@ enum SelfTest {
     /// `NSDocumentController` already keeps. The builder takes the list as an argument,
     /// so this drives the real one without touching the user's own recent documents.
     private static func recentDocumentsChecks() {
-        let urls = [URL(fileURLWithPath: "/tmp/paintbox-one.png"),
-                    URL(fileURLWithPath: "/tmp/elsewhere/paintbox-two.jpg")]
+        let urls = [URL(fileURLWithPath: "/tmp/swashpaint-one.png"),
+                    URL(fileURLWithPath: "/tmp/elsewhere/swashpaint-two.jpg")]
         let menu = NSMenu(title: "Open Recent")
         RecentDocumentsMenu.rebuild(menu, urls: urls, target: PaintboxApp.shared)
         let titles = menu.items.map(\.title)
-        let named = titles.prefix(2) == ["paintbox-one.png", "paintbox-two.jpg"]
+        let named = titles.prefix(2) == ["swashpaint-one.png", "swashpaint-two.jpg"]
         let carriesURLs = menu.items.prefix(2).map { $0.representedObject as? URL } == urls
         let wired = menu.items.prefix(2).allSatisfy {
             $0.target === PaintboxApp.shared
@@ -4217,7 +4220,7 @@ enum SelfTest {
         let encodedOnCopy = promise.encodeCount
         let pasteEnabled = PaintboxApp.canPasteImage(from: pb)
 
-        // Paste inside Paintbox takes the picture straight off the promise: no encode,
+        // Paste inside Swash Paint takes the picture straight off the promise: no encode,
         // no decode, and the pixels have to be the ones that were copied.
         let pasted = PaintboxApp.imageFromPasteboard(from: pb)
         let encodedOnInternalPaste = promise.encodeCount
@@ -4345,7 +4348,7 @@ enum SelfTest {
         check("the Resize dialog says what it is about to make",
               typo.contains("102400") && typo.contains("too big")
                   && fine == "2048 × 1536 pixels" && pixels == "640 × 480 pixels"
-                  && nonsense == "not a size Paintbox can use",
+                  && nonsense == "not a size Swash Paint can use",
               "10000% reads \"\(typo)\"; 200% reads \"\(fine)\"; 1e400 reads \"\(nonsense)\"")
     }
 
@@ -4753,7 +4756,7 @@ enum SelfTest {
         let big = Bitmap.context(from: AppIcon.render(pixels: 256))
         let warm = big.sample(x: 70, y: 60), cool = big.sample(x: 200, y: 215)
         if !(warm.r > warm.b && cool.b > cool.r) { iconWrong.append("no warm-to-cool wash: \(warm) / \(cool)") }
-        let dir = tmp.appendingPathComponent("Paintbox.iconset")
+        let dir = tmp.appendingPathComponent("SwashPaint.iconset")
         try? AppIcon.writeIconset(to: dir)
         let written = AppIcon.iconsetFiles.filter { f in
             Bitmap.load(url: dir.appendingPathComponent(f.name)).map { $0.width == f.pixels } ?? false
@@ -4936,7 +4939,7 @@ enum SelfTest {
     // ---- A mistyped flag is an error, not a window ---------------------------
 
     private static func commandLineChecks() {
-        let exe = "/Applications/Paintbox.app/Contents/MacOS/Paintbox"
+        let exe = "/Applications/Swash Paint.app/Contents/MacOS/SwashPaint"
         func parse(_ a: String...) -> CommandLineRoute { CommandLineRoute.parse([exe] + a) }
         let cases: [(String, CommandLineRoute, Bool)] = [
             ("no arguments", parse(), parse() == .gui),
@@ -4996,7 +4999,7 @@ enum SelfTest {
     /// promise a file instead; that half is asynchronous and is checked by what the view
     /// registers for, since no test can be another app keeping a promise.
     private static func imageDataDropChecks(tmp: URL) {
-        let pb = NSPasteboard(name: NSPasteboard.Name("paintbox-selftest-drop-\(getpid())"))
+        let pb = NSPasteboard(name: NSPasteboard.Name("swashpaint-selftest-drop-\(getpid())"))
         defer { pb.releaseGlobally() }
         let doc = PaintDocument(width: 60, height: 40, fill: .white)
         let canvas = CanvasView(document: doc, settings: ToolSettings())
@@ -5060,7 +5063,7 @@ enum SelfTest {
     private static let olderSHA = "370851abf4f5a01e61308544b1d6d72c2fef63cd"
     private static let latestSHA = "77e140b20104c01a96cd336c51d2405d84e862e1"
 
-    /// The shape of GET /repos/pivable/paintbox/commits/main, cut down to what is read
+    /// The shape of GET /repos/pivable/swash-paint/commits/main, cut down to what is read
     /// plus enough of what is not to show that the rest is ignored.
     private static let sampleLatest = """
         {"sha": "\(latestSHA)", "node_id": "C_x",
@@ -5181,7 +5184,7 @@ enum SelfTest {
         if case .success(.available(_, true, let ch, _))? = r3, ch.isEmpty { shapes.append("no compare:offered") }
         let everyURL = asked1 + asked2
         let onlyGitHubAPI = everyURL.allSatisfy { $0.scheme == "https" && $0.host == "api.github.com"
-                                                  && $0.path.hasPrefix("/repos/pivable/paintbox/") }
+                                                  && $0.path.hasPrefix("/repos/pivable/swash-paint/") }
         check("the check asks GitHub once or twice",
               shapes.count == 3 && asked1.count == 1 && asked2.count == 2
                   && asked2.last?.absoluteString.hasSuffix("/compare/\(olderSHA)...\(latestSHA)") == true
@@ -5202,16 +5205,15 @@ enum SelfTest {
               wrong.isEmpty ? "offline, rate-limited, server error and garbage each named" : "misread: \(wrong)")
 
         // ---- once a day, and the toggle ------------------------------------------
-        // One fixed scratch domain, emptied and its file deleted afterwards: a domain per
-        // run left an empty plist in ~/Library/Preferences every time the suite ran, which
-        // is every install.
-        let suite = "com.pivable.paintbox.selftest"
+        // A scratch domain named by an absolute path, so its file lives in the suite's
+        // temporary folder. A named domain lived in ~/Library/Preferences, and however it
+        // was emptied and deleted, cfprefsd wrote an empty plist back there after the
+        // process had gone — one more on every install.
+        let suite = tmp.appendingPathComponent("update-defaults").path
         func scrub() {
-            for name in [suite, suite + ".empty"] {
+            for name in [suite, suite + "-empty"] {
                 UserDefaults.standard.removePersistentDomain(forName: name)
-                let file = FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent("Library/Preferences/\(name).plist")
-                try? FileManager.default.removeItem(at: file)
+                try? FileManager.default.removeItem(atPath: name + ".plist")
             }
         }
         scrub()
@@ -5234,7 +5236,7 @@ enum SelfTest {
                   "never checked: \(fresh), an hour ago: \(anHourAgo), 25 hours ago: \(yesterday), "
                       + "a clock gone backwards: \(future), switched off: \(offFresh)")
 
-            let defaultOn = UpdatePreferences(defaults: UserDefaults(suiteName: suite + ".empty")!).checksAutomatically
+            let defaultOn = UpdatePreferences(defaults: UserDefaults(suiteName: suite + "-empty")!).checksAutomatically
             store.synchronize()
             let reread = UpdatePreferences(defaults: UserDefaults(suiteName: suite)!)
             let keptOff = !reread.checksAutomatically
@@ -5257,7 +5259,7 @@ enum SelfTest {
             controller.preferences = saved
             check("the automatic toggle persists",
                   defaultOn && keptOff && flippedOn && ticks == [.off, .on]
-                      && Array(titles.prefix(3)) == ["About Paintbox", "Check for Updates…", "Check for Updates Automatically"],
+                      && Array(titles.prefix(3)) == ["About Swash Paint", "Check for Updates…", "Check for Updates Automatically"],
                   "on by default: \(defaultOn); off survives a re-read: \(keptOff); menu ticks \(ticks.map { $0.rawValue }); "
                       + "app menu starts \(titles.prefix(3))")
         } else {
@@ -5268,17 +5270,17 @@ enum SelfTest {
         // ---- where the update goes -----------------------------------------------
         let home = FileManager.default.homeDirectoryForCurrentUser
         let places: [(String, URL, String?)] = [
-            ("/Applications", URL(fileURLWithPath: "/Applications/Paintbox.app"), "/Applications"),
-            ("~/Applications", home.appendingPathComponent("Applications/Paintbox.app"), home.appendingPathComponent("Applications").path),
-            ("renamed copy", URL(fileURLWithPath: "/Users/x/Tools/Paintbox 2.app"), "/Users/x/Tools"),
-            ("dotted path", URL(fileURLWithPath: "/Applications/Art/../Paintbox.app"), "/Applications"),
-            ("translocated", URL(fileURLWithPath: "/private/var/folders/xy/T/AppTranslocation/ABC/d/Paintbox.app"), nil),
+            ("/Applications", URL(fileURLWithPath: "/Applications/Swash Paint.app"), "/Applications"),
+            ("~/Applications", home.appendingPathComponent("Applications/Swash Paint.app"), home.appendingPathComponent("Applications").path),
+            ("renamed copy", URL(fileURLWithPath: "/Users/x/Tools/Swash Paint 2.app"), "/Users/x/Tools"),
+            ("dotted path", URL(fileURLWithPath: "/Applications/Art/../Swash Paint.app"), "/Applications"),
+            ("translocated", URL(fileURLWithPath: "/private/var/folders/xy/T/AppTranslocation/ABC/d/Swash Paint.app"), nil),
             ("bare binary", URL(fileURLWithPath: "/usr/local/bin"), nil),
         ]
         let misplaced = places.filter { UpdateInstall.destination(forBundle: $0.1)?.path != $0.2 }.map { $0.0 }
         check("the update goes where the app is",
               misplaced.isEmpty
-                  && UpdateInstall.installedApp(in: URL(fileURLWithPath: "/Users/x/Tools")).path == "/Users/x/Tools/Paintbox.app",
+                  && UpdateInstall.installedApp(in: URL(fileURLWithPath: "/Users/x/Tools")).path == "/Users/x/Tools/Swash Paint.app",
               misplaced.isEmpty ? "\(places.count) bundle paths, each to its own folder or refused" : "wrong for: \(misplaced)")
 
         let locked = tmp.appendingPathComponent("locked-apps", isDirectory: true)
@@ -5291,14 +5293,14 @@ enum SelfTest {
         chmod(locked.path, 0o755)
         check("a folder it cannot write is said first",
               lockedSays?.contains(locked.path) == true
-                  && lockedSays?.contains("| sudo PAINTBOX_DEST='\(locked.path)' bash") == true && openSays == nil
+                  && lockedSays?.contains("| sudo SWASHPAINT_DEST='\(locked.path)' bash") == true && openSays == nil
                   && UpdateInstall.destinationProblem(destination: URL(fileURLWithPath: "/Applications"),
                                                       isWritable: { _ in false })?.contains("| sudo bash") == true,
               "read-only folder: \(lockedSays == nil ? "NOT NOTICED" : "refused, with a sudo command naming that folder"); "
                   + "writable folder: \(openSays == nil ? "fine" : "WRONGLY REFUSED")")
 
         // ---- reading the installer -----------------------------------------------
-        let lines = ["  Paintbox", "  macOS 26.0, swift-driver", "  Fetching the source...", "  Building...",
+        let lines = ["  Swash Paint", "  macOS 26.0, swift-driver", "  Fetching the source...", "  Building...",
                      "  Checking it works...", "  206 passed, 0 failed", "  Installing to /Applications...",
                      "  Replacing the copy already in /Applications"]
         let phases = lines.compactMap(UpdateInstall.phase(forLine:))
@@ -5306,27 +5308,27 @@ enum SelfTest {
               phases == [.fetching, .building, .checking, .installing, .installing],
               "\(phases.map { $0.title })")
 
-        let cltLog = "\n  Paintbox\n\n\n  Apple's command line tools are missing, so there is no Swift compiler.\n\n  Run this...\n"
-        let testLog = "  Building...\n  Checking it works...\n\n  The self-test FAILED, so nothing was installed.\n  The log is at /tmp/paintbox-selftest.log\n\n"
-        let okLog = "  Installing to /x...\n\n  Installed to /x/Paintbox.app\n"
+        let cltLog = "\n  Swash Paint\n\n\n  Apple's command line tools are missing, so there is no Swift compiler.\n\n  Run this...\n"
+        let testLog = "  Building...\n  Checking it works...\n\n  The self-test FAILED, so nothing was installed.\n  The log is at /tmp/swashpaint-selftest.log\n\n"
+        let okLog = "  Installing to /x...\n\n  Installed to /x/Swash Paint.app\n"
         let clt = UpdateInstall.failureMessage(log: cltLog, status: 1)
         let failed = UpdateInstall.failureMessage(log: testLog, status: 1)
         check("a failed update says why",
               clt.contains("xcode-select --install")
-                  && failed == "The self-test FAILED, so nothing was installed. The log is at /tmp/paintbox-selftest.log"
+                  && failed == "The self-test FAILED, so nothing was installed. The log is at /tmp/swashpaint-selftest.log"
                   && UpdateInstall.succeeded(status: 0, log: okLog)
                   && !UpdateInstall.succeeded(status: 0, log: testLog) && !UpdateInstall.succeeded(status: 1, log: okLog),
               "tools missing → the xcode-select hint: \(clt.contains("xcode-select")); self-test → '\(failed)'")
 
         let dest = URL(fileURLWithPath: "/Users/x/Applications")
         let env = UpdateInstall.environment(base: ["HOME": "/Users/x", "PATH": "/opt/homebrew/bin"], destination: dest)
-        let relaunch = UpdateInstall.relaunchArguments(pid: 4242, app: dest.appendingPathComponent("Paintbox.app"))
+        let relaunch = UpdateInstall.relaunchArguments(pid: 4242, app: dest.appendingPathComponent("Swash Paint.app"))
         check("the installer is told where, and not to open",
-              env["PAINTBOX_DEST"] == dest.path && env["PAINTBOX_NO_OPEN"] == "1" && env["HOME"] == "/Users/x"
+              env["SWASHPAINT_DEST"] == dest.path && env["SWASHPAINT_NO_OPEN"] == "1" && env["HOME"] == "/Users/x"
                   && env["PATH"]?.hasPrefix("/opt/homebrew/bin:") == true && env["PATH"]?.contains("/usr/bin") == true
                   && relaunch.count == 5 && relaunch[0] == "-c" && relaunch[1].contains("kill -0")
-                  && relaunch[3] == "4242" && relaunch.last == "/Users/x/Applications/Paintbox.app",
-              "PAINTBOX_DEST=\(env["PAINTBOX_DEST"] ?? "UNSET"), PATH=\(env["PATH"] ?? "UNSET"); relaunch waits for pid \(relaunch.dropFirst(3).first ?? "?")")
+                  && relaunch[3] == "4242" && relaunch.last == "/Users/x/Applications/Swash Paint.app",
+              "SWASHPAINT_DEST=\(env["SWASHPAINT_DEST"] ?? "UNSET"), PATH=\(env["PATH"] ?? "UNSET"); relaunch waits for pid \(relaunch.dropFirst(3).first ?? "?")")
     }
 }
 
@@ -5334,7 +5336,7 @@ enum SelfTest {
 
 /// The picture `--screenshot` puts on the canvas: a wallpaper with the logo painted on it.
 ///
-/// The first one — a flat yellow box, a red bar and black "Paintbox" on white — looked
+/// The first one — a flat yellow box, a red bar and black "Paintbox" (its name then) on white — looked
 /// like 2005, and big type on the canvas looked cheap even when it was rounded and modern.
 /// So: no text. Flowing ribbons of the icon's own warm-to-violet colours, as on a macOS
 /// wallpaper, and the icon's swash painted across them with the app's real brush, dab by
@@ -5462,7 +5464,7 @@ enum DemoScene {
     static func sticker() -> CGImage { AppIcon.render(pixels: 136) }
 }
 
-/// `Paintbox.app/Contents/MacOS/Paintbox --screenshot out.png`
+/// `Swash Paint.app/Contents/MacOS/SwashPaint --screenshot out.png`
 ///
 /// Builds the real window, draws a few strokes into the document, lets AppKit lay out,
 /// then caches the window's contents to a PNG. It proves the UI renders - palette,
@@ -5497,9 +5499,9 @@ enum WindowShot {
     }
 
     static func capture(to path: String) {
-        // PAINTBOX_APPEARANCE=dark|light renders that appearance whatever the system is
+        // SWASHPAINT_APPEARANCE=dark|light renders that appearance whatever the system is
         // set to, so both can be looked at from one machine without touching its settings.
-        switch ProcessInfo.processInfo.environment["PAINTBOX_APPEARANCE"]?.lowercased() {
+        switch ProcessInfo.processInfo.environment["SWASHPAINT_APPEARANCE"]?.lowercased() {
         case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
         default: break
@@ -5558,5 +5560,228 @@ enum WindowShot {
             print("could not render the window")
             exit(1)
         }
+    }
+}
+
+
+// MARK: - The rename
+
+extension SelfTest {
+    /// The old name, never written out with its capital in this file: the last check below
+    /// scans the compiled binary for it, and this file is compiled into that binary.
+    fileprivate static let oldName = "paintbox".capitalized
+
+    /// Paintbox became Swash Paint on 2 Nov 2026. Three things have to agree for that to
+    /// hold — build.sh's plist, install.sh, and the strings in the code — and a rename half
+    /// done is a second app in the Dock, an updater asking a repository that is not there,
+    /// or a dialog with the old name in it. Each is checked from the built bundle itself.
+    static func renameChecks(tmp: URL) {
+        // ---- the bundle build.sh made --------------------------------------------
+        let info = Bundle.main.infoDictionary ?? [:]
+        let bundleSays = [info["CFBundleName"] as? String, info["CFBundleDisplayName"] as? String,
+                          info["CFBundleIdentifier"] as? String, info["CFBundleExecutable"] as? String]
+        let named = bundleSays == [AppIdentity.name, AppIdentity.name, AppIdentity.bundleID, AppIdentity.executable]
+            && AppIdentity.name == "Swash Paint" && AppIdentity.bundleID == "com.pivable.swashpaint"
+            && Bundle.main.bundleURL.lastPathComponent == "Swash Paint.app"
+            && Bundle.main.executableURL?.lastPathComponent == "SwashPaint"
+            && (info["NSHumanReadableCopyright"] as? String)?.contains(AppIdentity.tagline) == true
+            && [BuildStamp.commitKey, BuildStamp.commitDateKey, BuildStamp.buildDateKey]
+                == ["SwashPaintCommit", "SwashPaintCommitDate", "SwashPaintBuildDate"]
+        check("the bundle is Swash Paint",
+              named,
+              "\(Bundle.main.bundleURL.lastPathComponent): name, display name, ID, executable = "
+                  + "\(bundleSays.map { $0 ?? "MISSING" })")
+
+        // ---- where the updater and the installer look -----------------------------
+        let installer = Bundle.main.url(forResource: "install", withExtension: "sh")
+        let script = installer.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        let urlsRight = GitHub.api.absoluteString == "https://api.github.com/repos/pivable/swash-paint"
+            && GitHub.latestURL.absoluteString == "https://api.github.com/repos/pivable/swash-paint/commits/main"
+            && GitHub.installerURL.absoluteString == "https://raw.githubusercontent.com/pivable/swash-paint/main/install.sh"
+            && GitHub.installCommand == "curl -fsSL https://raw.githubusercontent.com/pivable/swash-paint/main/install.sh | bash"
+        let scriptRight = script.contains(#"REPO="${SWASHPAINT_REPO:-https://github.com/pivable/swash-paint}""#)
+            && script.contains(#"APP="Swash Paint.app""#)
+            && !script.contains("pivable/" + oldName.lowercased()) && !script.contains(oldName.uppercased() + "_")
+        check("the URLs point at swash-paint",
+              urlsRight && scriptRight,
+              "app asks \(GitHub.api.host ?? "?")\(GitHub.api.path), installs from \(GitHub.installerURL.path); "
+                  + "the bundled install.sh \(script.isEmpty ? "IS MISSING" : scriptRight ? "builds from pivable/swash-paint" : "STILL NAMES THE OLD REPOSITORY OR VARIABLES")")
+
+        // ---- install.sh removes an old Paintbox.app, and only ours -----------------
+        // A folder name with a space in it, because "Swash Paint.app" has one and the
+        // script's quoting is part of what is under test.
+        let fm = FileManager.default
+        func fakeApp(_ dir: URL, _ name: String, id: String?) {
+            let contents = dir.appendingPathComponent(name).appendingPathComponent("Contents")
+            try? fm.createDirectory(at: contents.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
+            try? Data("x".utf8).write(to: contents.appendingPathComponent("MacOS/marker"))
+            if let id = id, let plist = try? PropertyListSerialization.data(
+                fromPropertyList: ["CFBundleIdentifier": id], format: .xml, options: 0) {
+                try? plist.write(to: contents.appendingPathComponent("Info.plist"))
+            }
+        }
+        func retire(_ dir: URL) -> (status: Int32, said: String) {
+            guard let installer = installer else { return (-1, "") }
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/bash")
+            p.arguments = [installer.path]
+            p.environment = ["SWASHPAINT_RETIRE_ONLY": dir.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                             "HOME": tmp.path]
+            let out = Pipe()
+            p.standardOutput = out
+            p.standardError = out
+            p.standardInput = FileHandle.nullDevice
+            guard (try? p.run()) != nil else { return (-1, "") }
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            return (p.terminationStatus, String(decoding: data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let old = oldName + ".app"
+        let ours = tmp.appendingPathComponent("old apps/ours", isDirectory: true)
+        let foreign = tmp.appendingPathComponent("old apps/foreign", isDirectory: true)
+        let noPlist = tmp.appendingPathComponent("old apps/no plist", isDirectory: true)
+        let none = tmp.appendingPathComponent("old apps/none", isDirectory: true)
+        for d in [ours, foreign, noPlist, none] { try? fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        fakeApp(ours, old, id: AppIdentity.legacyBundleID)
+        fakeApp(ours, AppIdentity.bundleName, id: AppIdentity.bundleID)
+        fakeApp(foreign, old, id: "com.example." + oldName.lowercased())
+        fakeApp(noPlist, old, id: nil)
+        let r1 = retire(ours), r2 = retire(foreign), r3 = retire(noPlist), r4 = retire(none)
+        func has(_ d: URL, _ name: String) -> Bool { fm.fileExists(atPath: d.appendingPathComponent(name).path) }
+        let oursGone = !has(ours, old) && has(ours, AppIdentity.bundleName + "/Contents/MacOS/marker")
+            && r1.status == 0 && r1.said.contains("Removed the old \(old) from \(ours.path)")
+        let othersKept = has(foreign, old + "/Contents/MacOS/marker") && has(noPlist, old + "/Contents/MacOS/marker")
+            && r2.status == 0 && r2.said.contains("not ours") && r3.status == 0 && r3.said.contains("not ours")
+        let quietWhenNone = r4.status == 0 && r4.said.isEmpty
+        check("an old app is removed only if ours",
+              installer != nil && oursGone && othersKept && quietWhenNone,
+              installer == nil ? "install.sh IS NOT IN THE BUNDLE"
+                  : "ours (\(AppIdentity.legacyBundleID)) \(oursGone ? "removed, and said so" : "NOT REMOVED: '\(r1.said)'"); "
+                  + "another app's and one with no plist \(othersKept ? "kept" : "WRONGLY TOUCHED: '\(r2.said)' / '\(r3.said)'"); "
+                  + "an empty folder \(quietWhenNone ? "says nothing" : "SAID '\(r4.said)'")")
+
+        // ---- the update setting comes across from the old app ---------------------
+        // In the suite's temporary folder, for the reason given in updateChecks.
+        let suite = tmp.appendingPathComponent("legacy-defaults").path
+        func scrub() {
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+            try? fm.removeItem(atPath: suite + ".plist")
+        }
+        scrub()
+        defer { scrub() }
+        if let store = UserDefaults(suiteName: suite) {
+            let prefs = UpdatePreferences(defaults: store)
+            let nothingOld = prefs.adoptLegacySetting(from: nil) || prefs.adoptLegacySetting(from: ["Other": 1])
+            let took = prefs.adoptLegacySetting(from: [UpdatePreferences.automaticKey: false])
+            let offNow = !prefs.checksAutomatically
+            // A second launch, the old app still saying off, the user since switched it on.
+            prefs.checksAutomatically = true
+            let retook = prefs.adoptLegacySetting(from: [UpdatePreferences.automaticKey: false])
+            check("old update setting carries over",
+                  !nothingOld && took && offNow && !retook && prefs.checksAutomatically,
+                  "no old setting: \(nothingOld ? "CHANGED SOMETHING" : "nothing done"); old 'off' "
+                      + "\(took && offNow ? "adopted" : "NOT ADOPTED"); once the new app has its own answer "
+                      + "\(retook ? "IT WAS OVERWRITTEN" : "it is kept")")
+        } else {
+            check("old update setting carries over", false, "no scratch defaults")
+        }
+
+        // ---- nothing the user sees says Paintbox ----------------------------------
+        // Every string literal in the program is in the executable, so a scan of it finds an
+        // alert, a label or a menu item still carrying the old name without anyone having
+        // to open it. The type names (PaintboxApp and friends) are kept on purpose; they are
+        // always followed by more letters, which is how they are told apart.
+        var leaks: [String] = []
+        let exe = Bundle.main.executableURL.flatMap { try? Data(contentsOf: $0) } ?? Data()
+        let needle = Array(oldName.utf8)
+        let bytes = [UInt8](exe)
+        func isWordByte(_ b: UInt8) -> Bool { (b >= 65 && b <= 90) || (b >= 97 && b <= 122) }
+        var i = 0
+        while i + needle.count <= bytes.count {
+            if bytes[i] == needle[0], Array(bytes[i..<(i + needle.count)]) == needle,
+               i + needle.count == bytes.count || !isWordByte(bytes[i + needle.count]) {
+                let lo = max(0, i - 24), hi = min(bytes.count, i + needle.count + 24)
+                leaks.append(String(decoding: bytes[lo..<hi].map { $0 >= 32 && $0 < 127 ? $0 : 46 }, as: UTF8.self))
+                i += needle.count
+            } else {
+                i += 1
+            }
+        }
+        let newNameInBinary = exe.range(of: Data("Swash Paint".utf8)) != nil
+
+        // A literal of 15 bytes or fewer never reaches that scan: Swift keeps it inside the
+        // instructions as a small string, and a bare "Paintbox" alert title is just such a
+        // literal. So wherever the sources sit beside the bundle — the repository, and
+        // install.sh's build folder, which is everywhere the suite is normally run — every
+        // string literal in them is read too. Comment lines are history and may name it.
+        var sourceLeaks: [String] = []
+        let sources = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("Sources")
+        let swiftFiles = ((try? fm.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "swift" }
+        let literal = try! NSRegularExpression(pattern: "\"[^\"\\n]*" + oldName + "(?![A-Za-z])[^\"\\n]*\"")
+        for file in swiftFiles {
+            let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+            for (n, line) in text.components(separatedBy: "\n").enumerated()
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                if literal.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil {
+                    sourceLeaks.append("\(file.lastPathComponent):\(n + 1)")
+                }
+            }
+        }
+        let sourceNote = swiftFiles.isEmpty ? "sources not beside this bundle, so short literals unread"
+            : "\(swiftFiles.count) source files, \(sourceLeaks.count) literals with it \(sourceLeaks.prefix(3))"
+
+        // And what is on screen, read off the real objects.
+        var seen: [String] = []
+        func walk(_ menu: NSMenu?) {
+            for item in menu?.items ?? [] {
+                seen.append(item.title)
+                if let tip = item.toolTip { seen.append(tip) }
+                walk(item.submenu)
+            }
+        }
+        func walk(_ view: NSView?) {
+            guard let view = view else { return }
+            if let tip = view.toolTip { seen.append(tip) }
+            if let field = view as? NSTextField { seen.append(field.stringValue) }
+            if let button = view as? NSButton { seen.append(button.title) }
+            view.subviews.forEach(walk)
+        }
+        PaintboxApp.shared.buildMenus()
+        walk(NSApp.mainMenu)
+        let controller = PaintWindowController(document: PaintDocument(width: 64, height: 64, fill: .white))
+        PaintboxApp.shared.adopt(controller)
+        seen.append(controller.window?.title ?? "")
+        walk(controller.window?.contentView)
+        for item in controller.window?.toolbar?.items ?? [] {
+            seen += [item.label, item.paletteLabel, item.toolTip ?? ""]
+            walk(item.view)
+        }
+        let progress = UpdateProgressWindow()
+        seen.append(progress.title)
+        walk(progress.contentView)
+        if let latest = GitHub.parseLatest(Data(sampleLatest.utf8)) {
+            let panel = QuietUpdatePanel(verdict: .available(latest: latest, installedKnown: true,
+                                                             changes: ["One"], totalChanges: 1)) { _ in }
+            seen.append(panel.title)
+            walk(panel.contentView)
+            panel.close()
+        }
+        seen += info.values.compactMap { $0 as? String }
+        seen.append(CommandLineRoute.usage)
+        seen.append(UpdateInstall.destinationProblem(destination: URL(fileURLWithPath: "/Applications"),
+                                                     isWritable: { _ in false }) ?? "")
+        let shown = seen.filter { $0.localizedCaseInsensitiveContains(oldName) }
+        let windowNamed = controller.window?.title.hasSuffix("— Swash Paint") == true
+        controller.window?.close()
+        PaintboxApp.shared.forget(controller)
+        check("nothing visible says the old name",
+              !exe.isEmpty && newNameInBinary && leaks.isEmpty && sourceLeaks.isEmpty && shown.isEmpty
+                  && windowNamed && seen.count > 50,
+              "\(seen.count) on-screen strings read, \(shown.count) with the old name \(shown.prefix(3)); "
+                  + "the executable carries it \(leaks.count) times outside a type name \(leaks.prefix(3)); "
+                  + "\(sourceNote); "
+                  + "window title '\(controller.window?.title ?? "")'")
     }
 }

@@ -2,12 +2,28 @@ import Foundation
 
 // Check for Updates, the half that has no window in it.
 //
-// Paintbox is installed by building it on the user's own Mac (install.sh; CLAUDE.md says
+// Swash Paint is installed by building it on the user's own Mac (install.sh; CLAUDE.md says
 // why), so "updating" can only mean running that installer again. Everything here is the
 // part of that which can be decided without a network or a screen: what this copy was
 // built from, what GitHub's answer means, whether a check is due, where the new copy
 // goes, and what the installer's output says. UpdateUI.swift does the asking and the
 // showing. The split is what lets --selftest prove all of it with no network at all.
+
+// MARK: - What the app is called
+
+/// The names that have to agree with build.sh and install.sh. Until 2 Nov 2026 the app was
+/// Paintbox (com.pivable.paintbox); the self-test holds the built bundle to these, so a
+/// half-finished rename shows up as a failure rather than as a second app in the Dock.
+enum AppIdentity {
+    static let name = "Swash Paint"
+    static let tagline = "a free paint app for Mac"
+    static let bundleName = "Swash Paint.app"
+    static let executable = "SwashPaint"
+    static let bundleID = "com.pivable.swashpaint"
+    /// The old installer's bundle ID. install.sh removes an old copy only when it carries
+    /// this, and the update setting is carried over from this defaults domain.
+    static let legacyBundleID = "com.pivable.paintbox"
+}
 
 // MARK: - What this copy was built from
 
@@ -17,9 +33,9 @@ import Foundation
 /// main is the release, and the installer builds whatever main is. The commit is the only
 /// version that is always true.
 struct BuildStamp: Equatable {
-    static let commitKey = "PaintboxCommit"
-    static let commitDateKey = "PaintboxCommitDate"
-    static let buildDateKey = "PaintboxBuildDate"
+    static let commitKey = "SwashPaintCommit"
+    static let commitDateKey = "SwashPaintCommitDate"
+    static let buildDateKey = "SwashPaintBuildDate"
 
     /// Forty lowercase hex digits, or nil. A stamp that is present but not a commit — a
     /// hand-edited plist, a build.sh that ran with no git and no tarball header — is
@@ -78,11 +94,11 @@ struct BuildStamp: Equatable {
 /// The repository the app updates from, and how to read GitHub's answers about it.
 ///
 /// Fixed, not configurable: the app only ever asks about the repository the installer
-/// builds from. PAINTBOX_REPO still points the INSTALLER elsewhere for testing.
+/// builds from. SWASHPAINT_REPO still points the INSTALLER elsewhere for testing.
 enum GitHub {
-    static let api = URL(string: "https://api.github.com/repos/pivable/paintbox")!
+    static let api = URL(string: "https://api.github.com/repos/pivable/swash-paint")!
     static let branch = "main"
-    static let installerURL = URL(string: "https://raw.githubusercontent.com/pivable/paintbox/main/install.sh")!
+    static let installerURL = URL(string: "https://raw.githubusercontent.com/pivable/swash-paint/main/install.sh")!
     static var installCommand: String { "curl -fsSL \(installerURL.absoluteString) | bash" }
 
     static var latestURL: URL { api.appendingPathComponent("commits/\(branch)") }
@@ -158,7 +174,7 @@ enum UpdateVerdict: Equatable {
         if installed == latest.sha { return .upToDate(latest: latest) }
         switch comparison?.status {
         case "identical", "behind":
-            // A build NEWER than main is somebody working on Paintbox. Replacing their
+            // A build NEWER than main is somebody working on Swash Paint. Replacing their
             // build with an older one is not an update.
             return .upToDate(latest: latest)
         default:
@@ -250,7 +266,7 @@ final class URLSessionFetcher: UpdateFetching {
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         // GitHub refuses API requests that carry no User-Agent at all.
-        request.setValue("Paintbox", forHTTPHeaderField: "User-Agent")
+        request.setValue(AppIdentity.executable, forHTTPHeaderField: "User-Agent")
         session.dataTask(with: request) { data, response, error in
             let result: FetchResult
             if let error = error {
@@ -288,6 +304,18 @@ struct UpdatePreferences {
     var lastCheck: Date? {
         get { defaults.object(forKey: UpdatePreferences.lastCheckKey) as? Date }
         nonmutating set { defaults.set(newValue, forKey: UpdatePreferences.lastCheckKey) }
+    }
+
+    /// The new bundle ID is a new defaults domain, so somebody who switched the automatic
+    /// check off in the old app would find it back on. Copied once, only when this domain
+    /// has no answer of its own; the old domain is read, never changed. No shipped copy of
+    /// the old app had the setting, so in practice this finds nothing, but it costs nothing.
+    @discardableResult
+    func adoptLegacySetting(from legacy: [String: Any]?) -> Bool {
+        guard defaults.object(forKey: UpdatePreferences.automaticKey) == nil,
+              let old = legacy?[UpdatePreferences.automaticKey] as? Bool else { return false }
+        checksAutomatically = old
+        return true
     }
 
     /// At most once a day. A last check in the FUTURE means the clock was wrong then or is
@@ -344,10 +372,10 @@ enum UpdateInstall {
         return b.deletingLastPathComponent()
     }
 
-    /// The new copy lands as `Paintbox.app` in the destination, whatever the running one
+    /// The new copy lands as `Swash Paint.app` in the destination, whatever the running one
     /// is called, because that is the name install.sh writes.
     static func installedApp(in destination: URL) -> URL {
-        destination.appendingPathComponent("Paintbox.app")
+        destination.appendingPathComponent(AppIdentity.bundleName)
     }
 
     /// Why the installer would fail to write, said before a minute of building rather
@@ -360,10 +388,10 @@ enum UpdateInstall {
             // The command has to name the folder: bare `sudo bash` installs to /Applications,
             // which would leave the copy that could not be replaced exactly as it was.
             let target = destination.standardizedFileURL.path == "/Applications" ? ""
-                : "PAINTBOX_DEST='\(destination.path)' "
+                : "SWASHPAINT_DEST='\(destination.path)' "
             return """
-                Paintbox is in \(destination.path), which this account cannot change, so the \
-                update cannot replace it. Either move Paintbox to the Applications folder in \
+                Swash Paint is in \(destination.path), which this account cannot change, so the \
+                update cannot replace it. Either move Swash Paint to the Applications folder in \
                 your home folder, or update from Terminal with:
 
                     curl -fsSL \(GitHub.installerURL.absoluteString) | sudo \(target)bash
@@ -396,12 +424,12 @@ enum UpdateInstall {
 
     /// The installer's environment: the user's, plus where to install and the request not
     /// to open the app itself — the app offers "Relaunch now" instead, and two copies of
-    /// Paintbox running at once is what the installer's own `open` would otherwise give.
+    /// Swash Paint running at once is what the installer's own `open` would otherwise give.
     /// PATH is set because an app started from the Finder inherits a minimal one.
     static func environment(base: [String: String], destination: URL) -> [String: String] {
         var env = base
-        env["PAINTBOX_DEST"] = destination.path
-        env["PAINTBOX_NO_OPEN"] = "1"
+        env["SWASHPAINT_DEST"] = destination.path
+        env["SWASHPAINT_NO_OPEN"] = "1"
         let system = "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = (base["PATH"].map { $0 + ":" } ?? "") + system
         return env
@@ -412,12 +440,12 @@ enum UpdateInstall {
     /// just activate THIS process again, which is the old code.
     static func relaunchArguments(pid: Int32, app: URL) -> [String] {
         ["-c", "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.2; done; exec /usr/bin/open \"$2\"",
-         "paintbox-relaunch", String(pid), app.path]
+         "swashpaint-relaunch", String(pid), app.path]
     }
 
     /// Where the full installer output is kept, for "Show Log".
     static var logURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/Paintbox/update.log")
+            .appendingPathComponent("Library/Logs/Swash Paint/update.log")
     }
 }

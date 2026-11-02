@@ -1,5 +1,7 @@
 # Paintbox — the review backlog
 
+*The app was called Paintbox until 2 Nov 2026, when it became Swash Paint; what follows is history and keeps the old name.*
+
 **STATUS: the review is closed. 192 self-tests pass, the build is clean.**
 
 A ten-lens review on 2026-09-21 found 92 defects; 87 survived three independent skeptics each.

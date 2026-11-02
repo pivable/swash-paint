@@ -1,6 +1,8 @@
-# Paintbox
+# Swash Paint
 
-A free, native macOS paint and image editor in the spirit of MS Paint. AppKit, one
+**A free paint app for Mac.**
+
+A native macOS paint and image editor in the spirit of MS Paint. AppKit, one
 custom canvas view, no SwiftUI, no Xcode project.
 
 It exists so that blurring a name out of a screenshot, making a logo's white box
@@ -9,8 +11,8 @@ GIMP. The point of it being native rather than a web page is **Remove Background
 Vision's subject lifter runs on the machine, with no network call and no API bill.
 
 ```
-./build.sh          # compiles, assembles Paintbox.app, ad-hoc signs it
-open Paintbox.app
+./build.sh          # compiles, assembles "Swash Paint.app", ad-hoc signs it
+open "Swash Paint.app"
 ```
 
 ## Install, update, uninstall
@@ -18,42 +20,50 @@ open Paintbox.app
 **Install.** Needs macOS 14 or newer. In Terminal:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/pivable/paintbox/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pivable/swash-paint/main/install.sh | bash
 ```
 
 It fetches the source, builds it on your Mac, runs the self-test, and only then copies
-`Paintbox.app` into Applications. Built on your own machine, it is never quarantined, so it
+`Swash Paint.app` into Applications. Built on your own machine, it is never quarantined, so it
 opens without a security warning. If it says the command line tools are missing, run
 `xcode-select --install`, let it finish, and run the command again. Xcode itself is not needed.
 
-**Update.** Choose **Paintbox ▸ Check for Updates…**. If GitHub has a newer version it lists
+**It used to be called Paintbox** (until 2 Nov 2026). If you installed it then, run the
+command above once more: it installs Swash Paint and removes the old `Paintbox.app` from the
+same folder, after checking that it really is this app (bundle ID `com.pivable.paintbox`).
+The old copies have no update button, so that one command is the whole move.
+
+**Update.** Choose **Swash Paint ▸ Check for Updates…**. If GitHub has a newer version it lists
 what changed, and **Update** runs the same installer in the background: it fetches the source,
-builds it, runs the self-test, and replaces the copy in the folder Paintbox is in (so a copy
+builds it, runs the self-test, and replaces the copy in the folder Swash Paint is in (so a copy
 in `~/Applications` stays there). The copy you are using is not touched unless the new one
 built and passed its tests. When it is done, **Relaunch Now** opens the new version. If
-anything fails, it says why and offers the full log (`~/Library/Logs/Paintbox/update.log`).
+anything fails, it says why and offers the full log (`~/Library/Logs/Swash Paint/update.log`).
 Running the install command again in Terminal still does exactly the same thing.
 
-About Paintbox shows which version you have: the commit it was built from, and its date.
+About Swash Paint shows which version you have: the commit it was built from, and its date.
 
-**What the update check sends.** Once a day at most, a little after launch, Paintbox asks
+**What the update check sends.** Once a day at most, a little after launch, Swash Paint asks
 GitHub's public API (`api.github.com`) for the latest commit of this repository, and if it is
 newer, for the list of changes in between. That request carries nothing about you or your
 pictures: no account, no token, no identifier, only what any web request carries (your IP
-address, and a User-Agent of "Paintbox"). It is the only network request the app makes by
+address, and a User-Agent of "SwashPaint"). It is the only network request the app makes by
 itself. Choosing **Update** then downloads the installer and the source from GitHub
 (`raw.githubusercontent.com` and `github.com`), exactly as the Terminal command does. If an update is found it shows a small panel that does not take the focus; it never
-interrupts a drawing. To turn it off, untick **Paintbox ▸ Check for Updates Automatically**;
+interrupts a drawing. To turn it off, untick **Swash Paint ▸ Check for Updates Automatically**;
 Check for Updates… then asks only when you choose it.
 
-**Uninstall.** Quit Paintbox and drag it from Applications to the Bin. Two small things remain
+**Uninstall.** Quit Swash Paint and drag it from Applications to the Bin. Two small things remain
 outside it: its preferences (the update setting, the time of the last check, and window sizes)
 and, if it ever updated itself, the last update's log. This removes both:
 
 ```
-rm -f ~/Library/Preferences/com.pivable.paintbox.plist
-rm -rf ~/Library/Logs/Paintbox
+rm -f ~/Library/Preferences/com.pivable.swashpaint.plist
+rm -rf ~/Library/Logs/"Swash Paint"
 ```
+
+If it was once Paintbox, its old preferences file is `com.pivable.paintbox.plist` in the same
+folder, and can go too.
 
 ## Building
 
@@ -69,8 +79,8 @@ appears).
 Two hidden arguments exist for checking the build without a human at the screen:
 
 ```
-./Paintbox.app/Contents/MacOS/Paintbox --selftest
-./Paintbox.app/Contents/MacOS/Paintbox --screenshot /tmp/shot.png
+"./Swash Paint.app/Contents/MacOS/SwashPaint" --selftest
+"./Swash Paint.app/Contents/MacOS/SwashPaint" --screenshot /tmp/shot.png
 ```
 
 `--selftest` opens a generated test picture, runs every image operation in turn, checks
@@ -83,10 +93,10 @@ angles, an undo stack with no ceiling, an intricate selection outline, a panel l
 pointing at a closed window — and the ways it could throw work away or mislabel it
 quietly: two windows aimed at one file, a ⌘S that would change a file's format under you,
 a `--cutout` that wrote bytes its output was not named for. It prints a `PASS`/`FAIL` line
-per check — 221 of them — and exits non-zero on any failure.
+per check — 226 of them — and exits non-zero on any failure.
 `--screenshot` builds the real window, draws a demo picture into it, and writes what AppKit
 renders to a PNG, so you can see the interface without screen-recording permission.
-`PAINTBOX_APPEARANCE=dark` (or `light`) picks the appearance. AppKit's own renderer cannot
+`SWASHPAINT_APPEARANCE=dark` (or `light`) picks the appearance. AppKit's own renderer cannot
 draw Liquid Glass — it comes out as opaque white, which in dark mode buried every toolbar
 glyph — so the screenshot draws a stand-in of the same shape where each glass surface is.
 
@@ -96,7 +106,7 @@ glyph — so the screenshot draws a stand-in of the same shape where each glass 
 (PNG, JPEG, TIFF, HEIC, GIF, WebP — first frame), Save, Save As. The title bar shows the
 filename and the dirty dot; closing a window *and quitting the app* both ask before
 throwing unsaved changes away. Open an animated GIF and the status bar says "frame 1 of
-N", and saving over it asks before it keeps that one frame and drops the rest — Paintbox
+N", and saving over it asks before it keeps that one frame and drops the rest — Swash Paint
 edits one frame, and that is not something to find out afterwards.
 
 **One file, one window.** Opening a picture that is already open raises its window rather
@@ -104,7 +114,7 @@ than forking a second document onto the same path, and Save As refuses a file an
 window is editing and says which one. Every save writes the whole picture, so two windows
 on one file means whichever saves last wins and neither is told.
 
-**A file Paintbox can read but not write is never overwritten.** The Open panel admits
+**A file Swash Paint can read but not write is never overwritten.** The Open panel admits
 everything ImageIO reads, which is a longer list than the seven formats below: .webp,
 .psd, .dng and friends. ⌘S on one of those opens the Save As panel and says why, instead
 of writing PNG bytes into a file the rest of the system still believes is a WebP.
@@ -261,14 +271,14 @@ block rather than a blur. Every loaded file is normalised into that one format o
 so alpha survives load → rotate → save; the self-test checks exactly that.
 
 JPEG has no alpha, so saving as JPEG flattens the picture onto the **background swatch
-colour** first. Every other format Paintbox writes keeps transparency, and the self-test
+colour** first. Every other format Swash Paint writes keeps transparency, and the self-test
 round-trips each one and reads the alpha back to prove it.
 
 **Blur is the place alpha usually gets lost, so it is worth saying how it is done here.**
 The naive way to blur a selection is to crop it out, blur the crop, and paste it back.
 That is wrong at every edge: a Gaussian run over a cropped tile has nothing to sample
 beyond the tile, so it mixes in transparent black and leaves a dark, soft halo exactly
-where you wanted a clean boundary. Paintbox never crops before filtering. The filter is
+where you wanted a clean boundary. Swash Paint never crops before filtering. The filter is
 defined over the whole canvas — clamped at the canvas edge, so the picture's own border
 does not bleed either — and CoreImage is then asked for only the selection's rectangle out
 of that graph, which it renders by pulling whatever source pixels it needs from beyond the
@@ -341,7 +351,7 @@ literally never written. The self-test checks that count is zero.
 ## Background removal from the terminal
 
 ```
-./Paintbox.app/Contents/MacOS/Paintbox --cutout in.png out.png
+"./Swash Paint.app/Contents/MacOS/SwashPaint" --cutout in.png out.png
 ```
 
 Runs the same subject-lifting the menu item runs, with no window, and prints what changed:
@@ -355,7 +365,7 @@ The corner reading is the point. It distinguishes *"Vision found a subject and c
 *"Vision found nothing and the file came out unchanged"*, which otherwise look identical to a
 script. Exit codes: **0** cut out, **3** a file was written but the corner is still opaque,
 **4** no subject found, **2** the input could not be read, **5** the output name is not a format
-Paintbox can write, **6** the writer failed, **64** the command line was wrong — an unknown
+Swash Paint can write, **6** the writer failed, **64** the command line was wrong — an unknown
 `--flag` or a missing file name prints the usage instead of quietly opening the app.
 
 **The output format comes from the output's name**, through the same table the Save As panel
@@ -367,7 +377,7 @@ cutting it out is gone. **Name the output `.png`** unless you have a reason not 
 So a folder can be done in a loop — note the output extension, not the input's:
 
 ```
-for f in *.jpg; do Paintbox.app/Contents/MacOS/Paintbox --cutout "$f" "cut-${f%.*}.png"; done
+for f in *.jpg; do "Swash Paint.app/Contents/MacOS/SwashPaint" --cutout "$f" "cut-${f%.*}.png"; done
 ```
 
 It runs entirely on this Mac. Nothing is uploaded, there is no API key and there is no per-image

@@ -1,5 +1,8 @@
 # The build output. `./build.sh` regenerates it in seconds, and committing a
 # signed bundle to git is how you end up shipping a stale one.
+Swash Paint.app/
+SwashPaint.zip
+# The same, from before the app was renamed on 2 Nov 2026.
 Paintbox.app/
 Paintbox.zip
 

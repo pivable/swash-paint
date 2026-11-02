@@ -86,7 +86,7 @@ enum Dialogs {
                               current: CGSize) -> String {
         let size = requestedSize(mode: mode, width: width, height: height, current: current)
         guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1 else {
-            return "not a size Paintbox can use"
+            return "not a size Swash Paint can use"
         }
         // Formatted from the Double, not from an Int: this runs on every keystroke,
         // including the ones that ask for 1e30, and Int(1e30) is a trap.
@@ -280,7 +280,7 @@ enum Dialogs {
     static func error(_ message: String, window: NSWindow?) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Paintbox"
+        alert.messageText = "Swash Paint"
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         if let window {

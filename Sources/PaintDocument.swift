@@ -31,7 +31,7 @@ final class PaintDocument {
     /// negative when it has been wound back past it.
     ///
     /// The dirty flag used to be one-way: anything that changed a pixel set it, and only
-    /// saving cleared it. So draw, save, draw again, ⌘Z and Paintbox still offered to
+    /// saving cleared it. So draw, save, draw again, ⌘Z and Swash Paint still offered to
     /// save a picture identical to the one in the file, on close and on quit. Counting
     /// instead — forward on a change, BACK when that change is undone — is what lets the
     /// document notice it has returned to where the file is. `registerUndo` is the single
@@ -52,7 +52,7 @@ final class PaintDocument {
 
     /// How many frames the file this document was opened from contained.
     ///
-    /// Paintbox edits ONE frame — `Bitmap.load` has always taken index 0 — which is a
+    /// Swash Paint edits ONE frame — `Bitmap.load` has always taken index 0 — which is a
     /// reasonable limit for an editor but not one to keep quiet about: open a 40-frame
     /// animated GIF, crop it, press ⌘S and the other 39 frames were gone, in place, with
     /// no dialog anywhere in the path. Anything above 1 makes the window say so and
@@ -204,7 +204,7 @@ final class PaintDocument {
     /// `quality`; formats with no alpha channel are flattened onto `matte`.
     ///
     /// It used to fall back to PNG when the extension meant nothing, and that was the
-    /// quietest way this app could destroy a file. Paintbox opens everything ImageIO can
+    /// quietest way this app could destroy a file. Swash Paint opens everything ImageIO can
     /// read — .webp, .psd, .dng, .tga — which is a longer list than it can write, so
     /// ⌘S on one of those wrote a PNG stream into a file still named `logo.webp`, marked
     /// the document clean, and said nothing. The file was gone and mislabelled at once.
@@ -214,7 +214,7 @@ final class PaintDocument {
     func save(to url: URL, format: SaveFormat? = nil, quality: CGFloat = 0.8,
               matte: NSColor = .white) throws {
         guard let fmt = format ?? SaveFormat.forExtension(url.pathExtension) else {
-            throw PaintboxError.message("Paintbox cannot write \(Self.describe(extension: url.pathExtension)). "
+            throw PaintboxError.message("Swash Paint cannot write \(Self.describe(extension: url.pathExtension)). "
                                         + "Use Save As… to pick a format it can write.")
         }
         try Bitmap.write(image, to: url, format: fmt, quality: quality, matte: matte)

@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// How big a picture Paintbox will actually attempt to make.
+/// How big a picture Swash Paint will actually attempt to make.
 ///
 /// This exists because CoreGraphics does not say no. `CGContext(data: nil, …)` maps its
 /// backing store lazily, so a 1,024,000 x 768,000 request — one extra zero typed into the
@@ -31,15 +31,15 @@ enum CanvasLimits {
     static func rejection(for size: CGSize) -> String? {
         let w = size.width, h = size.height
         guard w.isFinite, h.isFinite, w >= 1, h >= 1 else {
-            return "That is not a size Paintbox can use. Type a whole number of pixels, "
+            return "That is not a size Swash Paint can use. Type a whole number of pixels, "
                  + "or a percentage of the current size."
         }
         if w.rounded() > CGFloat(maxSide) || h.rounded() > CGFloat(maxSide) {
-            return "That would make \(describe(size)). The longest side Paintbox will make "
+            return "That would make \(describe(size)). The longest side Swash Paint will make "
                  + "is \(maxSide) pixels."
         }
         if w.rounded() * h.rounded() > CGFloat(maxPixels) {
-            return "That would make \(describe(size)). Paintbox will make pictures up to "
+            return "That would make \(describe(size)). Swash Paint will make pictures up to "
                  + "\(maxPixels / 1_000_000) megapixels — 10000 × 10000, for example."
         }
         return nil

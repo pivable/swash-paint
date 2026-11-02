@@ -8,7 +8,7 @@ let arguments = CommandLine.arguments
 /// Each entry point used to look for its own flag and fall through to the GUI when it
 /// did not find it, so `--self-test`, `--cutout photo.jpg` with the output forgotten, or
 /// `--help` all opened a window and said nothing — on a terminal, which is exactly where
-/// nobody is looking at the Dock. A double-dash word Paintbox does not know is now an
+/// nobody is looking at the Dock. A double-dash word Swash Paint does not know is now an
 /// error with the usage on stderr and exit 64 (EX_USAGE).
 ///
 /// Only `--` words are judged. macOS hands GUI launches arguments of its own — `-psn_…`
@@ -25,12 +25,12 @@ enum CommandLineRoute: Equatable {
     case usageError(String)
 
     static let usage = """
-        usage: Paintbox                          open the app
-               Paintbox --selftest               run the self-tests, exit 0 when all pass
-               Paintbox --cutout IN OUT          remove the background from IN, write OUT
-               Paintbox --screenshot OUT.png     render the window to a PNG
-               Paintbox --iconset DIR.iconset    draw the app icon at every size (build.sh uses it)
-               Paintbox --help
+        usage: SwashPaint                          open the app
+               SwashPaint --selftest               run the self-tests, exit 0 when all pass
+               SwashPaint --cutout IN OUT          remove the background from IN, write OUT
+               SwashPaint --screenshot OUT.png     render the window to a PNG
+               SwashPaint --iconset DIR.iconset    draw the app icon at every size (build.sh uses it)
+               SwashPaint --help
         """
 
     static func parse(_ args: [String]) -> CommandLineRoute {
@@ -78,7 +78,7 @@ case .help:
     print(CommandLineRoute.usage)
     exit(0)
 case .usageError(let why):
-    FileHandle.standardError.write(Data("Paintbox: \(why)\n\(CommandLineRoute.usage)\n".utf8))
+    FileHandle.standardError.write(Data("Swash Paint: \(why)\n\(CommandLineRoute.usage)\n".utf8))
     exit(64)
 default:
     break
@@ -189,7 +189,7 @@ if case .iconset(let output) = route {
         print("wrote \(AppIcon.iconsetFiles.count) icon sizes to \(output)")
         exit(0)
     } catch {
-        FileHandle.standardError.write(Data("Paintbox: could not write \(output): \(error.localizedDescription)\n".utf8))
+        FileHandle.standardError.write(Data("Swash Paint: could not write \(output): \(error.localizedDescription)\n".utf8))
         exit(1)
     }
 }

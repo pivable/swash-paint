@@ -4,7 +4,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Everything Paintbox can write.
+/// Everything Swash Paint can write.
 ///
 /// The list is not a guess: `CGImageDestinationCopyTypeIdentifiers()` on this machine
 /// reports writers for all seven, and `SaveFormat.available` re-checks at run time so a
@@ -12,7 +12,7 @@ import UniformTypeIdentifiers
 /// at the save panel.
 ///
 /// **WebP is deliberately absent.** Apple's imaging layer reads WebP perfectly well — a
-/// .webp opens in Paintbox like anything else — but it ships no WebP *writer*, so there
+/// .webp opens in Swash Paint like anything else — but it ships no WebP *writer*, so there
 /// is no honest way to offer it as an export. Offering it and silently writing a PNG
 /// would be worse than not offering it.
 enum SaveFormat: String, CaseIterable {
@@ -112,7 +112,7 @@ extension Bitmap {
     /// Write `image` in any supported format. Formats without an alpha channel are
     /// composited onto `matte` — the background swatch — first, exactly as JPEG always was.
     ///
-    /// **Every file Paintbox writes comes through here**, the `--cutout` command line
+    /// **Every file Swash Paint writes comes through here**, the `--cutout` command line
     /// included. There used to be a second pair of writers on `Bitmap` — one PNG, one
     /// JPEG — left over from before this one existed. Nothing in the app could reach the
     /// JPEG one any more, but the self-test still called it, so the test that read "save

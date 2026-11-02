@@ -1,12 +1,24 @@
-# Paintbox: working on it
+# Swash Paint: working on it
 
 **Read this before changing anything here.** `README.md` is for people who use the app; this is
 for whoever works on it. It is deliberately short, and every line in it is something that has
 already cost somebody an hour.
 
-**What it is:** a native macOS drawing and image-editing app, in the spirit of MS Paint, whose
-one genuinely differentiated feature is background removal that runs on the machine. Free,
-MIT, public at **github.com/pivable/paintbox** since 2026-09-23.
+**What it is:** Swash Paint, "a free paint app for Mac": a native macOS drawing and
+image-editing app, in the spirit of MS Paint, whose one genuinely differentiated feature is
+background removal that runs on the machine. Free, MIT, public since 2026-09-23, at
+**github.com/pivable/swash-paint** (renamed from pivable/paintbox on 2 Nov 2026; GitHub
+redirects the old URLs).
+
+**It was called Paintbox until 2 Nov 2026.** The local folder is still `paintbox/`, because
+other tools depend on that path; do not rename it. Swift type names (`PaintboxApp`,
+`PaintboxError`, `paintboxColorSpace`, the `Paintbox…` colour names) were kept, since
+renaming them is churn nobody sees. Nothing a user sees may say Paintbox, and the self-test
+`nothing visible says the old name` enforces it, including a scan of the executable and of
+every string literal in `Sources/`. The names that must agree with build.sh and install.sh
+are in `AppIdentity` (Updater.swift): bundle `Swash Paint.app` (a space, so quote every
+path), executable `SwashPaint`, bundle ID `com.pivable.swashpaint`, legacy ID
+`com.pivable.paintbox`.
 
 ---
 
@@ -19,7 +31,7 @@ into a bundle that `build.sh` assembles by hand and ad-hoc signs.
 ```
 ./build.sh                  # the ONLY build command
 ./build.sh --universal      # Intel as well as Apple Silicon — use for anything you hand out
-./build.sh --package        # also produce Paintbox.zip and print the recipient's instructions
+./build.sh --package        # also produce SwashPaint.zip and print the recipient's instructions
 ```
 
 AppKit, not SwiftUI. That was chosen because this is a pixel editor with a custom canvas view,
@@ -28,10 +40,10 @@ and a declarative layer fights you for no gain.
 ## Prove it works before you believe it
 
 ```
-./Paintbox.app/Contents/MacOS/Paintbox --selftest
+"./Swash Paint.app/Contents/MacOS/SwashPaint" --selftest
 ```
 
-**221 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
+**226 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
 the code ran: that right-angle rotation is lossless, that alpha survives all seven save
 formats, that a blur leaves every pixel outside the selection untouched, that undo restores
 byte for byte, and that background removal actually finds a subject.
@@ -40,7 +52,7 @@ Two more entry points, and both matter because `screencapture` returns black on 
 
 ```
 --screenshot out.png        # renders the real window's view tree to a PNG. This is how you SEE it.
-                            # PAINTBOX_APPEARANCE=dark (or light) picks the appearance.
+                            # SWASHPAINT_APPEARANCE=dark (or light) picks the appearance.
 --iconset DIR.iconset       # draws the app icon at every size; build.sh runs it, then iconutil
 --cutout in.jpg out.png     # background removal, headless, format from the output extension
 ```
@@ -100,7 +112,7 @@ Each of these was a real bug here, and each is the kind that looks fine until it
 ## How people install it, and why it is shaped that way
 
 ```
-curl -fsSL https://raw.githubusercontent.com/pivable/paintbox/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pivable/swash-paint/main/install.sh | bash
 ```
 
 That fetches the source, builds it on the user's own machine, runs the tests, and only then
@@ -119,24 +131,35 @@ quarantine flag to fight.
 **Check for Updates runs that same installer** (`Updater.swift` decides, `UpdateUI.swift`
 shows). Things it depends on, each easy to break from the other side:
 
-- **The version is the commit.** `build.sh` stamps `PaintboxCommit` (and the commit's date,
-  and the build date) into Info.plist. A clone answers through git; the tarball path in
-  `install.sh` reads the commit from the tarball's pax `comment=` header and passes it as
-  `PAINTBOX_COMMIT`. No stamp means "cannot tell", which offers the update, never "up to date".
+- **The version is the commit.** `build.sh` stamps `SwashPaintCommit` (and
+  `SwashPaintCommitDate`, `SwashPaintBuildDate`) into Info.plist. A clone answers through git;
+  the tarball path in `install.sh` reads the commit from the tarball's pax `comment=` header
+  and passes it as `SWASHPAINT_COMMIT`. The tarball's top folder is `swash-paint-<sha>`;
+  install.sh takes whatever single folder it unpacks to, so the name does not matter. No
+  stamp means "cannot tell", which offers the update, never "up to date".
 - **The app reads install.sh's step lines** ("Fetching the source...", "Building...",
   "Checking it works...", "Installing to ...", and "Installed to " as proof of success) to
   drive its progress sheet. Change those words and change `UpdateInstall.phase(forLine:)`.
-- **`PAINTBOX_DEST`** is the folder holding the running bundle; **`PAINTBOX_NO_OPEN=1`** stops
-  the installer opening the app, because the app offers Relaunch Now itself.
+- **`SWASHPAINT_DEST`** is the folder holding the running bundle; **`SWASHPAINT_NO_OPEN=1`**
+  stops the installer opening the app, because the app offers Relaunch Now itself.
+- **The old Paintbox.app.** After a successful install, `retire_old` in install.sh removes
+  `Paintbox.app` from the same folder, only if its bundle ID is `com.pivable.paintbox`, and
+  says so. build.sh copies install.sh into the bundle's Resources so the self-test can run
+  that step alone (`SWASHPAINT_RETIRE_ONLY=<folder>`, which exits before anything else)
+  against fake bundles in a scratch folder. No shipped Paintbox had the updater, so old
+  copies move only by re-running the curl command. On launch the app copies the old
+  domain's `CheckForUpdatesAutomatically` if its own domain has none (`adoptLegacySetting`).
 - **install.sh never deletes the old copy first.** It copies the new one in under a hidden
   name, verifies it, then swaps; its EXIT trap puts the old one back if it is stopped mid-swap.
-- **Testing an unpushed installer:** launch the app with `PAINTBOX_INSTALLER=/path/install.sh`
-  (used instead of the one on GitHub) and `PAINTBOX_REPO=file:///path/to/clone` (what that
+- **Testing an unpushed installer:** launch the app with `SWASHPAINT_INSTALLER=/path/install.sh`
+  (used instead of the one on GitHub) and `SWASHPAINT_REPO=file:///path/to/clone` (what that
   installer clones). The check itself always asks the real GitHub. Install into a scratch
-  folder with `PAINTBOX_DEST`, never /Applications, and build it with an older
-  `PAINTBOX_COMMIT` to make it look out of date.
+  folder with `SWASHPAINT_DEST`, never /Applications, and build it with an older
+  `SWASHPAINT_COMMIT` to make it look out of date.
 - **The self-test never touches the network.** `UpdateFetching` is the seam; the suite's
-  stub records every URL it is asked for, and the toggle tests use a scratch defaults domain.
+  stub records every URL it is asked for, and the toggle tests use a scratch defaults domain
+  named by a path in the suite's temporary folder (a named one left an empty plist in
+  ~/Library/Preferences on every run, written back by cfprefsd after the process exited).
 
 ## Where things are written down
 

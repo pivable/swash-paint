@@ -3,7 +3,7 @@ import AppKit
 /// The app icon, drawn in code.
 ///
 /// There is no Xcode here and no asset catalog, so the icon is drawn by the app itself:
-/// `build.sh` runs `Paintbox --iconset DIR` on the binary it has just compiled and hands
+/// `build.sh` runs `SwashPaint --iconset DIR` on the binary it has just compiled and hands
 /// the PNGs to `iconutil`, which ships with macOS. That keeps the whole build to tools
 /// every Mac with the Command Line Tools already has — which `install.sh` depends on,
 /// because it builds on the user's machine.

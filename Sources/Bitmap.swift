@@ -48,7 +48,7 @@ enum Bitmap {
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
                                   bytesPerRow: w * 4, space: paintboxColorSpace,
                                   bitmapInfo: info) else {
-            fatalError("Paintbox: could not allocate a \(w)x\(h) bitmap")
+            fatalError("Swash Paint: could not allocate a \(w)x\(h) bitmap")
         }
         ctx.setAllowsAntialiasing(true)
         ctx.interpolationQuality = .high
@@ -120,7 +120,7 @@ enum Bitmap {
     /// The name of the file's colour space when it is WIDER than sRGB — "Display P3",
     /// "Adobe RGB" and so on — and nil for the ordinary sRGB or grey file.
     ///
-    /// Every bitmap in Paintbox is 8-bit sRGB (`paintboxColorSpace`), and `load`
+    /// Every bitmap in Swash Paint is 8-bit sRGB (`paintboxColorSpace`), and `load`
     /// normalises into that, so a Display P3 photograph is hard-clipped on the way in:
     /// P3 red is (1.093, -0.227, -0.150) in extended sRGB, and the parts outside the cube
     /// are gone for good — undo cannot reach them, and ⌘S then writes the duller pixels
@@ -304,7 +304,7 @@ extension CGContext {
     }
 
     /// Run `body` with the coordinate system flipped so (0,0) is the TOP-left pixel,
-    /// which is how the rest of Paintbox talks about image coordinates.
+    /// which is how the rest of Swash Paint talks about image coordinates.
     func withTopLeftOrigin(_ body: (CGContext) -> Void) {
         saveGState()
         translateBy(x: 0, y: CGFloat(height))

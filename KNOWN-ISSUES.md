@@ -1,5 +1,7 @@
 # Known issues
 
+*The app was called Paintbox until 2 Nov 2026, when it became Swash Paint; what follows is history and keeps the old name.*
+
 **Nothing is open.** This file is kept because it says what was found and what became of it.
 
 Paintbox has been through a ten-lens code review and three rounds of fixing, and it carries
