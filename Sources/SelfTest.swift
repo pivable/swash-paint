@@ -439,6 +439,9 @@ enum SelfTest {
         // ---- 24. What the completeness critic found after the review -------------
         criticChecks(tmp: tmp)
 
+        // ---- 25. Check for Updates, with no network --------------------------------
+        updateChecks(tmp: tmp)
+
         print("------------------")
         print("\(passes) passed, \(failures) failed")
         return failures == 0 ? 0 : 1
@@ -5038,6 +5041,292 @@ enum SelfTest {
                   + "reading \(top); TIFF bytes: \(tiffSaid); a .txt file: offered \(textOffered), "
                   + "\(textSaid); plain text offered \(wordsOffered); file promises "
                   + "\(promises ? "registered" : "NOT REGISTERED")")
+    }
+
+    // MARK: - Check for Updates
+
+    /// GitHub's answers as the self-test gives them: from a table, with every URL that was
+    /// asked for written down. Nothing here can reach the network, and the checks below
+    /// prove the app would have asked api.github.com and nothing else.
+    private final class StubFetcher: UpdateFetching {
+        var answers: [String: FetchResult] = [:]
+        var asked: [URL] = []
+        func fetch(_ url: URL, completion: @escaping (FetchResult) -> Void) {
+            asked.append(url)
+            completion(answers[url.absoluteString] ?? .status(404))
+        }
+    }
+
+    private static let olderSHA = "370851abf4f5a01e61308544b1d6d72c2fef63cd"
+    private static let latestSHA = "77e140b20104c01a96cd336c51d2405d84e862e1"
+
+    /// The shape of GET /repos/pivable/paintbox/commits/main, cut down to what is read
+    /// plus enough of what is not to show that the rest is ignored.
+    private static let sampleLatest = """
+        {"sha": "\(latestSHA)", "node_id": "C_x",
+         "commit": {"author": {"name": "pivable", "date": "2026-11-02T03:59:37Z"},
+                    "committer": {"name": "pivable", "date": "2026-11-02T03:59:37Z"},
+                    "message": "README: how to install, update and uninstall\\n\\nCo-Authored-By: Someone <x@y>"},
+         "parents": [{"sha": "\(olderSHA)"}], "files": [{"filename": "README.md"}]}
+        """
+
+    /// GET /compare/older...latest. GitHub lists the commits oldest first.
+    private static let sampleCompare = """
+        {"status": "ahead", "ahead_by": 3, "behind_by": 0, "total_commits": 3,
+         "commits": [
+           {"sha": "a", "commit": {"message": "Oldest change\\n\\nbody"}},
+           {"sha": "b", "commit": {"message": "Middle change"}},
+           {"sha": "c", "commit": {"message": "README: how to install, update and uninstall\\n\\nCo-Authored-By: x"}}]}
+        """
+
+    private static func updateChecks(tmp: URL) {
+        let utc = TimeZone(identifier: "UTC")!
+        let gb = Locale(identifier: "en_GB")
+
+        // ---- the stamp build.sh writes -------------------------------------------
+        let good = BuildStamp(info: [BuildStamp.commitKey: latestSHA,
+                                     BuildStamp.commitDateKey: "2026-11-02T10:59:37+07:00",
+                                     BuildStamp.buildDateKey: "2026-11-03T08:00:00Z"])
+        let tarball = BuildStamp(info: [BuildStamp.commitKey: latestSHA,
+                                        BuildStamp.buildDateKey: "2026-11-03T08:00:00Z"])
+        check("build stamp reads the commit",
+              good.commit == latestSHA && good.shortCommit == "77e140b"
+                  && good.aboutVersion(locale: gb, timeZone: utc) == "77e140b, 2 Nov 2026"
+                  && tarball.aboutVersion(locale: gb, timeZone: utc) == "77e140b, built 3 Nov 2026",
+              "about says '\(good.aboutVersion(locale: gb, timeZone: utc))', a tarball build "
+                  + "'\(tarball.aboutVersion(locale: gb, timeZone: utc))'")
+
+        let garbled: [(String, [String: Any]?)] = [
+            ("no plist", nil), ("no key", [:]), ("empty", [BuildStamp.commitKey: ""]),
+            ("short sha", [BuildStamp.commitKey: "77e140b"]),
+            ("not hex", [BuildStamp.commitKey: String(repeating: "z", count: 40)]),
+            ("a number", [BuildStamp.commitKey: 42]),
+            ("41 digits", [BuildStamp.commitKey: latestSHA + "0"]),
+        ]
+        let leaked = garbled.filter { BuildStamp(info: $0.1).commit != nil }.map { $0.0 }
+        // An uppercase stamp is still the commit; it is only lowercased.
+        let upper = BuildStamp(info: [BuildStamp.commitKey: latestSHA.uppercased()]).commit
+        check("a garbled stamp is no stamp",
+              leaked.isEmpty && upper == latestSHA
+                  && BuildStamp(info: nil).aboutVersion() == "unknown build",
+              leaked.isEmpty ? "all \(garbled.count) read as unknown; uppercase read as \(upper ?? "NOTHING")"
+                             : "taken as a commit: \(leaked)")
+
+        // ---- reading GitHub ------------------------------------------------------
+        let latest = GitHub.parseLatest(Data(sampleLatest.utf8))
+        let junk = [GitHub.parseLatest(Data("not json".utf8)),
+                    GitHub.parseLatest(Data(#"{"sha": "77e140b", "commit": {}}"#.utf8)),
+                    GitHub.parseLatest(Data(#"{"message": "API rate limit exceeded"}"#.utf8))]
+        check("GitHub's latest commit parses",
+              latest?.sha == latestSHA && latest?.subject == "README: how to install, update and uninstall"
+                  && latest?.date == BuildStamp.parseDate("2026-11-02T03:59:37Z")
+                  && junk.allSatisfy { $0 == nil },
+              "sha \(latest?.sha.prefix(7) ?? "NONE"), subject '\(latest?.subject ?? "")'; "
+                  + "\(junk.filter { $0 != nil }.count) of \(junk.count) bad answers accepted")
+
+        let cmp = GitHub.parseCompare(Data(sampleCompare.utf8))
+        check("the compare lists changes newest first",
+              cmp?.status == "ahead" && cmp?.totalCommits == 3
+                  && cmp?.subjects == ["README: how to install, update and uninstall", "Middle change", "Oldest change"],
+              "status \(cmp?.status ?? "NONE"), \(cmp?.subjects ?? [])")
+
+        // ---- the verdict ---------------------------------------------------------
+        if let latest = latest {
+            func ahead(_ s: String) -> GitHub.Comparison { GitHub.Comparison(status: s, totalCommits: 3, subjects: cmp?.subjects ?? []) }
+            let same = UpdateVerdict.decide(installed: latestSHA, latest: latest, comparison: nil)
+            let newer = UpdateVerdict.decide(installed: olderSHA, latest: latest, comparison: ahead("ahead"))
+            let devBuild = UpdateVerdict.decide(installed: olderSHA, latest: latest, comparison: ahead("behind"))
+            let noList = UpdateVerdict.decide(installed: olderSHA, latest: latest, comparison: nil)
+            let unknown = UpdateVerdict.decide(installed: nil, latest: latest, comparison: nil)
+            let bogus = UpdateVerdict.decide(installed: "abc", latest: latest, comparison: ahead("identical"))
+            func said(_ v: UpdateVerdict) -> String {
+                switch v {
+                case .upToDate: return "up to date"
+                case let .available(_, known, changes, total):
+                    return "offered (\(known ? "known" : "unknown") version, \(changes.count) listed of \(total))"
+                }
+            }
+            check("up to date versus newer",
+                  same == .upToDate(latest: latest)
+                      && newer == .available(latest: latest, installedKnown: true, changes: cmp?.subjects ?? [], totalChanges: 3)
+                      && devBuild == .upToDate(latest: latest)
+                      && noList == .available(latest: latest, installedKnown: true, changes: [], totalChanges: 0),
+                  "same commit: \(said(same)); older: \(said(newer)); a build ahead of main: \(said(devBuild)); compare failed: \(said(noList))")
+            check("an unknown version is offered the update",
+                  unknown == .available(latest: latest, installedKnown: false, changes: [], totalChanges: 0)
+                      && bogus == unknown
+                      && UpdateController.describe(unknown).contains("does not record which version"),
+                  "no stamp: \(said(unknown)); a stamp of 'abc': \(said(bogus))")
+        } else {
+            check("up to date versus newer", false, "the sample did not parse")
+            check("an unknown version is offered the update", false, "the sample did not parse")
+        }
+
+        // ---- the whole check, against the stub -----------------------------------
+        func run(_ installed: String?, _ answers: [String: FetchResult]) -> (Result<UpdateVerdict, UpdateCheckError>?, [URL]) {
+            let stub = StubFetcher()
+            stub.answers = answers
+            var got: Result<UpdateVerdict, UpdateCheckError>?
+            UpdateCheck.run(installed: installed, fetcher: stub) { got = $0 }
+            return (got, stub.asked)
+        }
+        let latestKey = GitHub.latestURL.absoluteString
+        let compareKey = GitHub.compareURL(installed: olderSHA, latest: latestSHA).absoluteString
+        let (r1, asked1) = run(latestSHA, [latestKey: .ok(Data(sampleLatest.utf8))])
+        let (r2, asked2) = run(olderSHA, [latestKey: .ok(Data(sampleLatest.utf8)), compareKey: .ok(Data(sampleCompare.utf8))])
+        let (r3, _) = run(olderSHA, [latestKey: .ok(Data(sampleLatest.utf8))])   // the compare 404s
+        var shapes: [String] = []
+        if case .success(.upToDate)? = r1 { shapes.append("same:upToDate") }
+        if case .success(.available(_, true, let ch, 3))? = r2, ch.count == 3 { shapes.append("older:3 changes") }
+        if case .success(.available(_, true, let ch, _))? = r3, ch.isEmpty { shapes.append("no compare:offered") }
+        let everyURL = asked1 + asked2
+        let onlyGitHubAPI = everyURL.allSatisfy { $0.scheme == "https" && $0.host == "api.github.com"
+                                                  && $0.path.hasPrefix("/repos/pivable/paintbox/") }
+        check("the check asks GitHub once or twice",
+              shapes.count == 3 && asked1.count == 1 && asked2.count == 2
+                  && asked2.last?.absoluteString.hasSuffix("/compare/\(olderSHA)...\(latestSHA)") == true
+                  && onlyGitHubAPI,
+              "\(shapes); requests \(asked1.count) and \(asked2.count), all to api.github.com: \(onlyGitHubAPI)")
+
+        let failures: [(String, FetchResult, UpdateCheckError)] = [
+            ("offline", .failed("The Internet connection appears to be offline."), .unreachable("The Internet connection appears to be offline.")),
+            ("403", .status(403), .rateLimited), ("429", .status(429), .rateLimited),
+            ("500", .status(500), .http(500)), ("garbage", .ok(Data("<html>".utf8)), .unreadable),
+        ]
+        let wrong = failures.filter { name, answer, expected in
+            guard case .failure(let e)? = run(olderSHA, [latestKey: answer]).0 else { return true }
+            return e != expected
+        }.map { $0.0 }
+        check("a failed check says why",
+              wrong.isEmpty && UpdateCheckError.rateLimited.message.contains("hour"),
+              wrong.isEmpty ? "offline, rate-limited, server error and garbage each named" : "misread: \(wrong)")
+
+        // ---- once a day, and the toggle ------------------------------------------
+        // One fixed scratch domain, emptied and its file deleted afterwards: a domain per
+        // run left an empty plist in ~/Library/Preferences every time the suite ran, which
+        // is every install.
+        let suite = "com.pivable.paintbox.selftest"
+        func scrub() {
+            for name in [suite, suite + ".empty"] {
+                UserDefaults.standard.removePersistentDomain(forName: name)
+                let file = FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Library/Preferences/\(name).plist")
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+        scrub()
+        defer { scrub() }
+        if let store = UserDefaults(suiteName: suite) {
+            let prefs = UpdatePreferences(defaults: store)
+            let now = Date(timeIntervalSince1970: 1_793_600_000)
+            let fresh = prefs.automaticCheckDue(now: now)
+            prefs.lastCheck = now.addingTimeInterval(-3600)
+            let anHourAgo = prefs.automaticCheckDue(now: now)
+            prefs.lastCheck = now.addingTimeInterval(-25 * 3600)
+            let yesterday = prefs.automaticCheckDue(now: now)
+            prefs.lastCheck = now.addingTimeInterval(7 * 24 * 3600)
+            let future = prefs.automaticCheckDue(now: now)
+            prefs.lastCheck = nil
+            prefs.checksAutomatically = false
+            let offFresh = prefs.automaticCheckDue(now: now)
+            check("at most one automatic check a day",
+                  fresh && !anHourAgo && yesterday && future && !offFresh,
+                  "never checked: \(fresh), an hour ago: \(anHourAgo), 25 hours ago: \(yesterday), "
+                      + "a clock gone backwards: \(future), switched off: \(offFresh)")
+
+            let defaultOn = UpdatePreferences(defaults: UserDefaults(suiteName: suite + ".empty")!).checksAutomatically
+            store.synchronize()
+            let reread = UpdatePreferences(defaults: UserDefaults(suiteName: suite)!)
+            let keptOff = !reread.checksAutomatically
+
+            // The real menu item's tick follows the saved setting, both ways.
+            let controller = UpdateController.shared
+            let saved = controller.preferences
+            controller.preferences = reread
+            PaintboxApp.shared.buildMenus()
+            let appMenu = NSApp.mainMenu?.items.first?.submenu
+            let titles = appMenu?.items.map { $0.title } ?? []
+            let toggle = appMenu?.items.first { $0.action == #selector(UpdateController.toggleAutomaticChecks(_:)) }
+            var ticks: [NSControl.StateValue] = []
+            if let toggle = toggle {
+                _ = controller.validateMenuItem(toggle); ticks.append(toggle.state)
+                controller.toggleAutomaticChecks(toggle)
+                _ = controller.validateMenuItem(toggle); ticks.append(toggle.state)
+            }
+            let flippedOn = UpdatePreferences(defaults: UserDefaults(suiteName: suite)!).checksAutomatically
+            controller.preferences = saved
+            check("the automatic toggle persists",
+                  defaultOn && keptOff && flippedOn && ticks == [.off, .on]
+                      && Array(titles.prefix(3)) == ["About Paintbox", "Check for Updates…", "Check for Updates Automatically"],
+                  "on by default: \(defaultOn); off survives a re-read: \(keptOff); menu ticks \(ticks.map { $0.rawValue }); "
+                      + "app menu starts \(titles.prefix(3))")
+        } else {
+            check("at most one automatic check a day", false, "no scratch defaults")
+            check("the automatic toggle persists", false, "no scratch defaults")
+        }
+
+        // ---- where the update goes -----------------------------------------------
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let places: [(String, URL, String?)] = [
+            ("/Applications", URL(fileURLWithPath: "/Applications/Paintbox.app"), "/Applications"),
+            ("~/Applications", home.appendingPathComponent("Applications/Paintbox.app"), home.appendingPathComponent("Applications").path),
+            ("renamed copy", URL(fileURLWithPath: "/Users/x/Tools/Paintbox 2.app"), "/Users/x/Tools"),
+            ("dotted path", URL(fileURLWithPath: "/Applications/Art/../Paintbox.app"), "/Applications"),
+            ("translocated", URL(fileURLWithPath: "/private/var/folders/xy/T/AppTranslocation/ABC/d/Paintbox.app"), nil),
+            ("bare binary", URL(fileURLWithPath: "/usr/local/bin"), nil),
+        ]
+        let misplaced = places.filter { UpdateInstall.destination(forBundle: $0.1)?.path != $0.2 }.map { $0.0 }
+        check("the update goes where the app is",
+              misplaced.isEmpty
+                  && UpdateInstall.installedApp(in: URL(fileURLWithPath: "/Users/x/Tools")).path == "/Users/x/Tools/Paintbox.app",
+              misplaced.isEmpty ? "\(places.count) bundle paths, each to its own folder or refused" : "wrong for: \(misplaced)")
+
+        let locked = tmp.appendingPathComponent("locked-apps", isDirectory: true)
+        try? FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        let open = tmp.appendingPathComponent("open-apps", isDirectory: true)
+        try? FileManager.default.createDirectory(at: open, withIntermediateDirectories: true)
+        chmod(locked.path, 0o555)
+        let lockedSays = UpdateInstall.destinationProblem(destination: locked, isWritable: FileManager.default.isWritableFile(atPath:))
+        let openSays = UpdateInstall.destinationProblem(destination: open, isWritable: FileManager.default.isWritableFile(atPath:))
+        chmod(locked.path, 0o755)
+        check("a folder it cannot write is said first",
+              lockedSays?.contains(locked.path) == true
+                  && lockedSays?.contains("| sudo PAINTBOX_DEST='\(locked.path)' bash") == true && openSays == nil
+                  && UpdateInstall.destinationProblem(destination: URL(fileURLWithPath: "/Applications"),
+                                                      isWritable: { _ in false })?.contains("| sudo bash") == true,
+              "read-only folder: \(lockedSays == nil ? "NOT NOTICED" : "refused, with a sudo command naming that folder"); "
+                  + "writable folder: \(openSays == nil ? "fine" : "WRONGLY REFUSED")")
+
+        // ---- reading the installer -----------------------------------------------
+        let lines = ["  Paintbox", "  macOS 26.0, swift-driver", "  Fetching the source...", "  Building...",
+                     "  Checking it works...", "  206 passed, 0 failed", "  Installing to /Applications...",
+                     "  Replacing the copy already in /Applications"]
+        let phases = lines.compactMap(UpdateInstall.phase(forLine:))
+        check("the installer's steps are followed",
+              phases == [.fetching, .building, .checking, .installing, .installing],
+              "\(phases.map { $0.title })")
+
+        let cltLog = "\n  Paintbox\n\n\n  Apple's command line tools are missing, so there is no Swift compiler.\n\n  Run this...\n"
+        let testLog = "  Building...\n  Checking it works...\n\n  The self-test FAILED, so nothing was installed.\n  The log is at /tmp/paintbox-selftest.log\n\n"
+        let okLog = "  Installing to /x...\n\n  Installed to /x/Paintbox.app\n"
+        let clt = UpdateInstall.failureMessage(log: cltLog, status: 1)
+        let failed = UpdateInstall.failureMessage(log: testLog, status: 1)
+        check("a failed update says why",
+              clt.contains("xcode-select --install")
+                  && failed == "The self-test FAILED, so nothing was installed. The log is at /tmp/paintbox-selftest.log"
+                  && UpdateInstall.succeeded(status: 0, log: okLog)
+                  && !UpdateInstall.succeeded(status: 0, log: testLog) && !UpdateInstall.succeeded(status: 1, log: okLog),
+              "tools missing → the xcode-select hint: \(clt.contains("xcode-select")); self-test → '\(failed)'")
+
+        let dest = URL(fileURLWithPath: "/Users/x/Applications")
+        let env = UpdateInstall.environment(base: ["HOME": "/Users/x", "PATH": "/opt/homebrew/bin"], destination: dest)
+        let relaunch = UpdateInstall.relaunchArguments(pid: 4242, app: dest.appendingPathComponent("Paintbox.app"))
+        check("the installer is told where, and not to open",
+              env["PAINTBOX_DEST"] == dest.path && env["PAINTBOX_NO_OPEN"] == "1" && env["HOME"] == "/Users/x"
+                  && env["PATH"]?.hasPrefix("/opt/homebrew/bin:") == true && env["PATH"]?.contains("/usr/bin") == true
+                  && relaunch.count == 5 && relaunch[0] == "-c" && relaunch[1].contains("kill -0")
+                  && relaunch[3] == "4242" && relaunch.last == "/Users/x/Applications/Paintbox.app",
+              "PAINTBOX_DEST=\(env["PAINTBOX_DEST"] ?? "UNSET"), PATH=\(env["PATH"] ?? "UNSET"); relaunch waits for pid \(relaunch.dropFirst(3).first ?? "?")")
     }
 }
 

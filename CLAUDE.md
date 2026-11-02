@@ -31,7 +31,7 @@ and a declarative layer fights you for no gain.
 ./Paintbox.app/Contents/MacOS/Paintbox --selftest
 ```
 
-**206 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
+**221 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
 the code ran: that right-angle rotation is lossless, that alpha survives all seven save
 formats, that a blur leaves every pixel outside the selection untouched, that undo restores
 byte for byte, and that background removal actually finds a subject.
@@ -115,6 +115,28 @@ which would let a plain download just work. Nothing in the code changes either w
 
 `Build.command` is double-clickable for anyone who cloned the repository, where there is no
 quarantine flag to fight.
+
+**Check for Updates runs that same installer** (`Updater.swift` decides, `UpdateUI.swift`
+shows). Things it depends on, each easy to break from the other side:
+
+- **The version is the commit.** `build.sh` stamps `PaintboxCommit` (and the commit's date,
+  and the build date) into Info.plist. A clone answers through git; the tarball path in
+  `install.sh` reads the commit from the tarball's pax `comment=` header and passes it as
+  `PAINTBOX_COMMIT`. No stamp means "cannot tell", which offers the update, never "up to date".
+- **The app reads install.sh's step lines** ("Fetching the source...", "Building...",
+  "Checking it works...", "Installing to ...", and "Installed to " as proof of success) to
+  drive its progress sheet. Change those words and change `UpdateInstall.phase(forLine:)`.
+- **`PAINTBOX_DEST`** is the folder holding the running bundle; **`PAINTBOX_NO_OPEN=1`** stops
+  the installer opening the app, because the app offers Relaunch Now itself.
+- **install.sh never deletes the old copy first.** It copies the new one in under a hidden
+  name, verifies it, then swaps; its EXIT trap puts the old one back if it is stopped mid-swap.
+- **Testing an unpushed installer:** launch the app with `PAINTBOX_INSTALLER=/path/install.sh`
+  (used instead of the one on GitHub) and `PAINTBOX_REPO=file:///path/to/clone` (what that
+  installer clones). The check itself always asks the real GitHub. Install into a scratch
+  folder with `PAINTBOX_DEST`, never /Applications, and build it with an older
+  `PAINTBOX_COMMIT` to make it look out of date.
+- **The self-test never touches the network.** `UpdateFetching` is the seam; the suite's
+  stub records every URL it is asked for, and the toggle tests use a scratch defaults domain.
 
 ## Where things are written down
 

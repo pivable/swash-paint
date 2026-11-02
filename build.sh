@@ -134,6 +134,28 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Which source this was built from, for About and for Check for Updates. Every push to
+# main is a release and nothing bumps a version number, so the commit is the version.
+# install.sh passes PAINTBOX_COMMIT when it fetched a tarball, which has no .git; a
+# clone answers for itself. git is asked only when this folder IS the top of a work
+# tree, so a tarball unpacked inside somebody else's repository does not borrow its
+# commit. Anything that is not forty hex digits is left out, and the app then says it
+# cannot tell, rather than claiming to be up to date.
+COMMIT="${PAINTBOX_COMMIT:-}"
+COMMIT_DATE=""
+if [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; then
+    [ -n "$COMMIT" ] || COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+    COMMIT_DATE="$(git log -1 --format=%cI "$COMMIT" 2>/dev/null || true)"
+fi
+if [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    plutil -insert PaintboxCommit -string "$COMMIT" "$APP/Contents/Info.plist"
+    [ -z "$COMMIT_DATE" ] || plutil -insert PaintboxCommitDate -string "$COMMIT_DATE" "$APP/Contents/Info.plist"
+    echo "    commit $COMMIT"
+else
+    echo "    commit unknown: no git work tree here and no PAINTBOX_COMMIT"
+fi
+plutil -insert PaintboxBuildDate -string "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$APP/Contents/Info.plist"
+
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "==> Ad-hoc signing"

@@ -26,14 +26,33 @@ It fetches the source, builds it on your Mac, runs the self-test, and only then 
 opens without a security warning. If it says the command line tools are missing, run
 `xcode-select --install`, let it finish, and run the command again. Xcode itself is not needed.
 
-**Update.** Run the same command again. It builds the latest version and replaces the copy in
-Applications. The app does not check for updates by itself.
+**Update.** Choose **Paintbox ▸ Check for Updates…**. If GitHub has a newer version it lists
+what changed, and **Update** runs the same installer in the background: it fetches the source,
+builds it, runs the self-test, and replaces the copy in the folder Paintbox is in (so a copy
+in `~/Applications` stays there). The copy you are using is not touched unless the new one
+built and passed its tests. When it is done, **Relaunch Now** opens the new version. If
+anything fails, it says why and offers the full log (`~/Library/Logs/Paintbox/update.log`).
+Running the install command again in Terminal still does exactly the same thing.
 
-**Uninstall.** Quit Paintbox and drag it from Applications to the Bin. It keeps no settings or
-data anywhere else. At most macOS remembers its window size, which this removes:
+About Paintbox shows which version you have: the commit it was built from, and its date.
+
+**What the update check sends.** Once a day at most, a little after launch, Paintbox asks
+GitHub's public API (`api.github.com`) for the latest commit of this repository, and if it is
+newer, for the list of changes in between. That request carries nothing about you or your
+pictures: no account, no token, no identifier, only what any web request carries (your IP
+address, and a User-Agent of "Paintbox"). It is the only network request the app makes by
+itself. Choosing **Update** then downloads the installer and the source from GitHub
+(`raw.githubusercontent.com` and `github.com`), exactly as the Terminal command does. If an update is found it shows a small panel that does not take the focus; it never
+interrupts a drawing. To turn it off, untick **Paintbox ▸ Check for Updates Automatically**;
+Check for Updates… then asks only when you choose it.
+
+**Uninstall.** Quit Paintbox and drag it from Applications to the Bin. Two small things remain
+outside it: its preferences (the update setting, the time of the last check, and window sizes)
+and, if it ever updated itself, the last update's log. This removes both:
 
 ```
 rm -f ~/Library/Preferences/com.pivable.paintbox.plist
+rm -rf ~/Library/Logs/Paintbox
 ```
 
 ## Building
@@ -64,7 +83,7 @@ angles, an undo stack with no ceiling, an intricate selection outline, a panel l
 pointing at a closed window — and the ways it could throw work away or mislabel it
 quietly: two windows aimed at one file, a ⌘S that would change a file's format under you,
 a `--cutout` that wrote bytes its output was not named for. It prints a `PASS`/`FAIL` line
-per check — 206 of them — and exits non-zero on any failure.
+per check — 221 of them — and exits non-zero on any failure.
 `--screenshot` builds the real window, draws a demo picture into it, and writes what AppKit
 renders to a PNG, so you can see the interface without screen-recording permission.
 `PAINTBOX_APPEARANCE=dark` (or `light`) picks the appearance. AppKit's own renderer cannot

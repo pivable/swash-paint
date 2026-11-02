@@ -97,6 +97,14 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
             present(PaintDocument(width: 1024, height: 768, fill: .white))
         }
         NSApp.activate(ignoringOtherApps: true)
+        UpdateController.shared.scheduleAutomaticCheck()
+    }
+
+    /// The standard About panel, told which commit this copy was built from. "Version 1.0"
+    /// alone is the same on every build there has ever been, so it cannot answer the one
+    /// question anybody opens About to ask: is this the new one?
+    @objc func showAbout(_ sender: Any?) {
+        NSApp.orderFrontStandardAboutPanel(options: [.version: BuildStamp.current.aboutVersion()])
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -107,6 +115,7 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
     /// whether or not anything ever asked for it.
     func applicationWillTerminate(_ notification: Notification) {
         PasteboardImage.redeemOutstandingPromise()
+        UpdateController.shared.relaunchIfPending()
     }
 
     /// ⌘Q used to throw away unsaved work without a word.
@@ -354,7 +363,11 @@ final class PaintboxApp: NSObject, NSApplicationDelegate {
         // App menu
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About Paintbox", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        add(appMenu, "About Paintbox", #selector(showAbout(_:)), "", [], target: self)
+        add(appMenu, "Check for Updates…", #selector(UpdateController.checkForUpdates(_:)), "", [],
+            target: UpdateController.shared)
+        add(appMenu, "Check for Updates Automatically", #selector(UpdateController.toggleAutomaticChecks(_:)),
+            "", [], target: UpdateController.shared)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Paintbox", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")

@@ -41,7 +41,9 @@ major="$(sw_vers -productVersion | cut -d. -f1)"
 [ "$major" -ge 14 ] || die "Needs macOS 14 or newer; this is $(sw_vers -productVersion).
   Remove Background uses a Vision capability that arrived in 14."
 
-if ! command -v swiftc >/dev/null 2>&1; then
+# `xcode-select -p`, not `command -v swiftc`: /usr/bin/swiftc exists on every Mac, as a
+# stub that puts up Apple's install dialog, so asking for it always said yes.
+if ! xcode-select -p >/dev/null 2>&1 || ! xcrun --find swiftc >/dev/null 2>&1; then
     die "Apple's command line tools are missing, so there is no Swift compiler.
 
   Run this, let it finish, then run the install command again:
@@ -53,10 +55,29 @@ fi
 
 say "macOS $(sw_vers -productVersion), $(swiftc --version 2>/dev/null | head -1)"
 
+# Checked before a minute of building, not after it.
+mkdir -p "$DEST" 2>/dev/null || true
+[ -d "$DEST" ] && [ -w "$DEST" ] || die "Could not write to $DEST.
+  Either run with a writable destination:  PAINTBOX_DEST=\"\$HOME/Applications\" ...
+  or re-run the same command with sudo."
+
 # ── fetch ──
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+NEW="$DEST/.Paintbox.app.installing.$$"
+OLD="$DEST/.Paintbox.app.previous.$$"
+# Whatever happens, never leave the user with no Paintbox: if this stops between moving
+# the old copy aside and moving the new one in, the old one goes back.
+cleanup() {
+    rm -rf "$WORK" "$NEW"
+    if [ -e "$OLD" ]; then
+        if [ -e "$DEST/Paintbox.app" ]; then rm -rf "$OLD"; else mv "$OLD" "$DEST/Paintbox.app"; fi
+    fi
+}
+trap cleanup EXIT
+# A plain kill would otherwise skip the EXIT trap. The app's updater runs this in the
+# background, where being stopped is an ordinary event.
+trap 'exit 130' INT TERM HUP
 
 say "Fetching the source..."
 if command -v git >/dev/null 2>&1; then
@@ -64,9 +85,15 @@ if command -v git >/dev/null 2>&1; then
         || die "Could not clone $REPO"
 else
     # No git: fall back to the tarball, which needs nothing extra.
-    curl -fsSL "$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar xz -C "$WORK" \
+    curl -fsSL "$REPO/archive/refs/heads/$BRANCH.tar.gz" -o "$WORK/source.tar.gz" \
         || die "Could not download $REPO"
+    tar xzf "$WORK/source.tar.gz" -C "$WORK" || die "Could not unpack the download from $REPO"
     mv "$WORK"/paintbox-* "$WORK/paintbox"
+    # The tarball has no .git, but GitHub writes the commit into its first header, as a
+    # pax "comment=<sha>" record: that is how the app later knows which version it is.
+    PAINTBOX_COMMIT="$( (gzip -dc "$WORK/source.tar.gz" | head -c 1024 | tr '\0' '\n' \
+        | sed -n 's/^[0-9]* comment=\([0-9a-f]\{40\}\)$/\1/p' | head -1) 2>/dev/null || true)"
+    export PAINTBOX_COMMIT
 fi
 
 cd "$WORK/paintbox"
@@ -85,16 +112,28 @@ fi
 say "$(tail -1 "$WORK/selftest.log")"
 
 # ── install ──
+#
+# The old copy is never deleted before the new one is in place. The new one is copied
+# in beside it under a hidden name and its signature checked; only then is the old one
+# moved aside, the new one renamed in, and the old one removed. A failure at any step
+# leaves the old copy where it was (see cleanup above).
+
+say "Installing to $DEST..."
+ditto Paintbox.app "$NEW" 2>/dev/null || die "Could not write to $DEST.
+  Either run with a writable destination:  PAINTBOX_DEST=\"\$HOME/Applications\" ...
+  or re-run the same command with sudo."
+codesign --verify "$NEW" 2>/dev/null || die "The copy in $DEST did not verify, so nothing was replaced."
 
 if [ -e "$DEST/Paintbox.app" ]; then
     say "Replacing the copy already in $DEST"
-    rm -rf "$DEST/Paintbox.app"
+    mv "$DEST/Paintbox.app" "$OLD" || die "Could not move the old copy aside, so nothing was replaced."
 fi
-cp -R Paintbox.app "$DEST/Paintbox.app" 2>/dev/null || die "Could not write to $DEST.
-  Either run with a writable destination:  PAINTBOX_DEST=\"\$HOME/Applications\" ...
-  or re-run the same command with sudo."
+mv "$NEW" "$DEST/Paintbox.app" || die "Could not move the new copy into place; the old one is kept."
+rm -rf "$OLD"
 
 printf '\n  Installed to %s/Paintbox.app\n' "$DEST"
 printf '  It opens straight away — an app built on this machine is never quarantined.\n\n'
 
-open "$DEST/Paintbox.app" 2>/dev/null || true
+# The app's own updater sets this: it offers "Relaunch now" itself, and opening the new
+# copy here would only bring the old, still-running process to the front.
+[ -n "${PAINTBOX_NO_OPEN:-}" ] || open "$DEST/Paintbox.app" 2>/dev/null || true
