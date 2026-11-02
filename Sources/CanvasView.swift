@@ -1264,9 +1264,13 @@ final class CanvasView: NSView {
     var canZoomIn: Bool { zoom < Self.maxZoom }
     var canZoomOut: Bool { zoom > Self.minZoom }
 
+    /// How much of the visible area at each side zoom-to-fit leaves clear: the floating
+    /// panels sit over the canvas, and a picture fitted under them is a picture half hidden.
+    var fitMargins = CGSize(width: 12, height: 12)
+
     func zoomToFit() {
         guard let clip = enclosingScrollView?.contentView else { return }
-        let avail = clip.bounds.insetBy(dx: 12, dy: 12).size
+        let avail = clip.bounds.insetBy(dx: max(12, fitMargins.width), dy: max(12, fitMargins.height)).size
         guard document.pixelSize.width > 0, document.pixelSize.height > 0 else { return }
         let z = min(avail.width / document.pixelSize.width, avail.height / document.pixelSize.height)
         zoom = max(0.02, min(16, z))
@@ -1312,7 +1316,8 @@ extension CanvasView {
     /// Open at 100% unless the picture is bigger than the window, then fit it.
     func zoomToFitIfLarger() {
         guard let clip = enclosingScrollView?.contentView else { return }
-        if document.pixelSize.width > clip.bounds.width || document.pixelSize.height > clip.bounds.height {
+        let room = clip.bounds.insetBy(dx: fitMargins.width, dy: fitMargins.height)
+        if document.pixelSize.width > room.width || document.pixelSize.height > room.height {
             zoomToFit()
         } else {
             zoom = 1

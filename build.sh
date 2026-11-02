@@ -64,6 +64,16 @@ else
     compile_one "arm64-apple-macos14.0" "$BIN"
 fi
 
+# The icon is drawn by the binary just built — see Sources/AppIcon.swift — and packed
+# by iconutil, which ships with macOS. No Xcode, no asset catalog, nothing to download,
+# so it runs exactly the same inside install.sh on the user's machine. A universal
+# binary runs here too: the loader picks this Mac's half.
+echo "==> Drawing the app icon"
+ICONSET="$(mktemp -d)/Paintbox.iconset"
+"$BIN" --iconset "$ICONSET" | sed 's/^/    /'
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Paintbox.icns"
+rm -rf "$(dirname "$ICONSET")"
+
 echo "==> Writing Info.plist"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -73,6 +83,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
+    <string>Paintbox</string>
+    <key>CFBundleIconFile</key>
     <string>Paintbox</string>
     <key>CFBundleIdentifier</key>
     <string>com.pivable.paintbox</string>

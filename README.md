@@ -17,7 +17,9 @@ open Paintbox.app
 
 There is no Xcode on this machine, only the Command Line Tools, so there is no
 `.xcodeproj` and no `xcodebuild`. `build.sh` calls `swiftc` directly, writes
-`Contents/Info.plist` by hand, and ad-hoc signs the bundle with `codesign --force --sign -`.
+`Contents/Info.plist` by hand, draws the app icon (the freshly built binary renders it at
+every size with `--iconset`, and `iconutil`, which ships with macOS, packs the `.icns`),
+and ad-hoc signs the bundle with `codesign --force --sign -`.
 It is the single command that produces a runnable app. Target is `arm64-apple-macos14.0`
 (macOS 14 is the floor because that is where `VNGenerateForegroundInstanceMaskRequest`
 appears).
@@ -39,9 +41,12 @@ angles, an undo stack with no ceiling, an intricate selection outline, a panel l
 pointing at a closed window — and the ways it could throw work away or mislabel it
 quietly: two windows aimed at one file, a ⌘S that would change a file's format under you,
 a `--cutout` that wrote bytes its output was not named for. It prints a `PASS`/`FAIL` line
-per check — 200 of them — and exits non-zero on any failure.
-`--screenshot` builds the real window, draws into it, and writes what AppKit renders to a
-PNG, so you can see the interface without screen-recording permission.
+per check — 206 of them — and exits non-zero on any failure.
+`--screenshot` builds the real window, draws a demo picture into it, and writes what AppKit
+renders to a PNG, so you can see the interface without screen-recording permission.
+`PAINTBOX_APPEARANCE=dark` (or `light`) picks the appearance. AppKit's own renderer cannot
+draw Liquid Glass — it comes out as opaque white, which in dark mode buried every toolbar
+glyph — so the screenshot draws a stand-in of the same shape where each glass surface is.
 
 ## What it does
 
@@ -72,7 +77,14 @@ calling it a WebP would be worse than saying no. The format list is re-checked a
 so a writer that disappears in a future macOS drops out of the menu rather than failing
 at the save panel.
 
-**Tools**, down the left, each with a single-key shortcut:
+**The window** is the toolbar and the canvas, which takes the full width. Everything else
+floats over the canvas on glass (Liquid Glass on macOS 26, the system's translucent
+material before it): the **tools** in a column at the left edge, the current tool's
+**options** in a pill across the top that changes with the tool and shows its key, and the
+**colours** in a capsule along the bottom — the two colours in play and eight common ones,
+opening upward into the full palette with the chevron. Hover a tool for its name and key.
+
+**Tools**, in the floating column, each with a single-key shortcut:
 
 | Key | Tool | Notes |
 |---|---|---|
@@ -89,8 +101,8 @@ at the save panel.
 | `A` | Arrow | a line with a head on it; shares the line tool's drag, width and Shift-45° |
 | `W` | Magic wand | selects by colour, own tolerance slider; **Option-click** selects every matching pixel in the picture rather than only the contiguous blob |
 
-Foreground and background swatches with a twenty-colour standard palette and the system
-colour picker. **Right-click (or Control-click) draws with the background colour** —
+Foreground and background colours with a twenty-four-colour palette — neutrals, the
+system hues, and deeper and softer tones — and the system colour picker. **Right-click (or Control-click) draws with the background colour** —
 for the two shape tools that also swaps which colour fills and which outlines.
 
 **Image operations**, all on the menu bar and most of them on the toolbar as well (the
@@ -272,9 +284,10 @@ literally never written. The self-test checks that count is zero.
   Size refuse anything larger and say what was asked for, rather than accepting a typed
   "5000%" and taking the machine down with it: CoreGraphics maps a bitmap lazily, so a
   three-terabyte canvas allocates without complaint and only dies when it is drawn.
-- **The palette uses hand-computed frames**, not Auto Layout. It is a fixed 156 pt column
-  inside a scroll view; it will not reflow, only scroll, in a short window. With twelve
-  tools and four sliders it now needs about 700 pt of height before it starts scrolling.
+- **The floating panels use hand-computed frames**, not Auto Layout. In a short window the
+  tool column folds into two columns, and in a narrow one the options pill drops its hint
+  and shortens its sliders, rather than reflowing. The panels sit over the canvas, so on a
+  picture zoomed past the window they cover its edges; zoom to fit leaves room for them.
 - **Open Recent** relies on AppKit's private `_setMenuName:` to wire the submenu, since
   there is no nib to do it. The call is guarded, so at worst the submenu stays empty.
 - **Arbitrary-angle rotation resamples**, so turning 15° five times is visibly softer than

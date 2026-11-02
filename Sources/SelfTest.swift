@@ -4023,47 +4023,72 @@ enum SelfTest {
     /// fits, and that the measurement has teeth — the word that did not fit still does
     /// not, so this cannot pass by measuring nothing.
     ///
-    /// The palette's own height is here too. It is hand-laid at a fixed height inside a
-    /// scroll view, and the scroll view is what makes a palette taller than the window
-    /// reachable rather than clipped; the default window also has to be tall enough that
-    /// nobody needs it on day one.
+    /// Whether the palette fits is here too. It floats over the canvas now, hand-laid, so
+    /// nothing reflows it for free: the tool column has to fold and the options pill has
+    /// to shrink when the window is small, and this is what says they did.
     private static func interfaceLabelChecks() {
-        let shipped = PaletteView.shapeStyleSegments.map(\.label)
-        let tooWide = shipped.filter { !PaletteView.shapeStyleFits($0) }
-        let widths = shipped.map { "\($0) \(Int(PaletteView.shapeStyleTextWidth($0).rounded()))pt" }
+        let shipped = OptionsIsland.shapeStyleSegments.map(\.label)
+        let tooWide = shipped.filter { !OptionsIsland.shapeStyleFits($0) }
+        let widths = shipped.map { "\($0) \(Int(OptionsIsland.shapeStyleTextWidth($0).rounded()))pt" }
         check("every shape-style label fits its segment",
-              tooWide.isEmpty && !PaletteView.shapeStyleFits("Outline")
+              tooWide.isEmpty && !OptionsIsland.shapeStyleFits("Outline")
                   && shipped.count == 3,
-              "\(widths.joined(separator: ", ")) in \(Int(PaletteView.shapeStyleSegmentWidth))pt "
+              "\(widths.joined(separator: ", ")) in \(Int(OptionsIsland.shapeStyleSegmentWidth))pt "
                   + "segments; \"Outline\" would need "
-                  + "\(Int(PaletteView.shapeStyleTextWidth("Outline").rounded()))pt and is the "
+                  + "\(Int(OptionsIsland.shapeStyleTextWidth("Outline").rounded()))pt and is the "
                   + "label that used to be truncated"
                   + (tooWide.isEmpty ? "" : "; STILL TOO WIDE: \(tooWide.joined(separator: ", "))"))
 
+        // The panels float over the canvas now, so "fits" means: every one of them lies
+        // wholly inside the canvas area, none sits on another, and that stays true when
+        // the window is dragged down to its minimum size — where the dock has to fold
+        // into two columns to keep its last tiles on screen.
         let doc = PaintDocument(width: 64, height: 64, fill: .white)
         let controller = PaintWindowController(document: doc)
-        func findPalette(_ view: NSView) -> (palette: PaletteView, scroll: NSScrollView)? {
-            if let scroll = view as? NSScrollView, let palette = scroll.documentView as? PaletteView {
-                return (palette, scroll)
-            }
-            for sub in view.subviews {
-                if let found = findPalette(sub) { return found }
-            }
-            return nil
-        }
-        guard let content = controller.window?.contentView, let found = findPalette(content) else {
-            check("the palette fits the window it ships with", false,
-                  "no palette inside a scroll view in the window")
+        guard let window = controller.window, let content = window.contentView,
+              let palette = controller.palette, let scroll = controller.canvas.enclosingScrollView else {
+            check("the palette fits the window it ships with", false, "no floating palette in the window")
             controller.window?.close()
             PaintboxApp.shared.forget(controller)
             return
         }
-        let available = content.frame.height
+        func problems(_ label: String) -> [String] {
+            let area = scroll.frame
+            var out: [String] = []
+            let named: [(String, CGRect)] = [("dock", palette.dock.shapeFrame),
+                                             ("options", palette.island.shapeFrame),
+                                             ("colours", palette.colors.shapeFrame)]
+            for (name, r) in named where !area.contains(r) {
+                out.append("\(label): \(name) \(describe(r)) leaves the canvas area \(describe(area))")
+            }
+            for i in 0..<named.count {
+                for j in (i + 1)..<named.count where named[i].1.intersects(named[j].1) {
+                    out.append("\(label): \(named[i].0) overlaps \(named[j].0)")
+                }
+            }
+            if abs(area.width - content.bounds.width) > 0.5 {
+                out.append("\(label): the canvas is \(Int(area.width))pt of a \(Int(content.bounds.width))pt window")
+            }
+            return out
+        }
+        let atDefault = problems("default")
+        let defaultColumns = palette.dock.columns
+        window.setContentSize(window.contentMinSize.width > 0 ? window.contentMinSize
+                              : window.contentRect(forFrameRect: CGRect(origin: .zero, size: window.minSize)).size)
+        var atMinimum: [String] = []
+        for tool in Tool.allCases {
+            controller.settings.tool = tool
+            atMinimum += problems("minimum, \(tool.rawValue)")
+        }
+        let minimumColumns = palette.dock.columns
+        let all = atDefault + atMinimum
         check("the palette fits the window it ships with",
-              found.palette.fittingHeight <= available && found.scroll.hasVerticalScroller,
-              "the palette is \(Int(found.palette.fittingHeight))pt tall in \(Int(available))pt "
-                  + "of window, and scrolls "
-                  + "\(found.scroll.hasVerticalScroller ? "if it ever stops fitting" : "NOT AT ALL")")
+              all.isEmpty && defaultColumns == 1,
+              all.isEmpty ? "dock, options and colours sit inside the full-width canvas without "
+                            + "touching, in \(defaultColumns) column at the default size and "
+                            + "\(minimumColumns) at the minimum"
+                          : all.joined(separator: "; ")
+                            + (defaultColumns == 1 ? "" : "; the dock is \(defaultColumns) columns at the default size"))
         controller.window?.close()
         PaintboxApp.shared.forget(controller)
     }
@@ -4513,6 +4538,7 @@ enum SelfTest {
         cascadeChecks()
         imageDataDropChecks(tmp: tmp)
         themeChecks()
+        floatingPaletteChecks(tmp: tmp)
     }
 
     // ---- The 2026 look answers for light and dark ----------------------------
@@ -4545,6 +4571,195 @@ enum SelfTest {
               light > 0.8 && dark < 0.2 && tiles == ["ok", "ok"],
               "backdrop \(String(format: "%.2f", light)) light, \(String(format: "%.2f", dark)) dark; "
                   + "the current tool is accent-coloured in both: \(tiles.joined(separator: ", "))")
+    }
+
+    // ---- The floating palette -------------------------------------------------
+
+    /// The tools, colours and options left the sidebar for panels floating over a
+    /// full-width canvas. What has to stay true: the canvas really is full width and
+    /// reaches the toolbar; the options island shows the current tool's settings and no
+    /// others, and they still change the settings; the dock's tiles carry no letter yet
+    /// still name their key and still select their tool; the colour capsule opens and
+    /// closes about its bottom edge and its swatches still set the colour; the dark
+    /// toolbar is legible in the screenshot the owner judges by; and the icon is a tile.
+    private static func floatingPaletteChecks(tmp: URL) {
+        let doc = PaintDocument(width: 120, height: 90, fill: .white)
+        let controller = PaintWindowController(document: doc)
+        guard let window = controller.window, let palette = controller.palette,
+              let scroll = controller.canvas.enclosingScrollView else {
+            check("the canvas fills the window", false, "no window, palette or scroll view")
+            return
+        }
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.orderFrontRegardless()
+        // Let the toolbar settle: that is what used to leave the content view short.
+        let deadline = Date().addingTimeInterval(1.5)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+        let content = window.contentView!
+        let layout = window.contentLayoutRect.size
+        check("the canvas fills the window",
+              abs(content.frame.height - layout.height) < 0.5 && abs(content.frame.width - layout.width) < 0.5
+                  && abs(scroll.frame.width - content.bounds.width) < 0.5
+                  && abs(scroll.frame.maxY - content.bounds.height) < 0.5,
+              "content \(describe(content.frame)) in a \(Int(layout.width))x\(Int(layout.height)) layout rect; "
+                  + "canvas \(describe(scroll.frame)) reaches \(scroll.frame.maxY == content.bounds.height ? "the toolbar" : "SHORT OF THE TOOLBAR")")
+
+        // The island, tool by tool.
+        let settings = controller.settings
+        var wrong: [String] = []
+        for tool in Tool.allCases {
+            settings.tool = tool
+            let shown = palette.island.visibleOptions, want = OptionsIsland.options(for: tool)
+            if shown != want { wrong.append("\(tool.rawValue) shows \(shown.map(\.rawValue)) not \(want.map(\.rawValue))") }
+            if !scroll.frame.contains(palette.island.shapeFrame) { wrong.append("\(tool.rawValue) island off the canvas") }
+            if palette.island.keycap.key != tool.key.uppercased() { wrong.append("\(tool.rawValue) keycap says \(palette.island.keycap.key)") }
+        }
+        settings.tool = .brush
+        let slider = palette.island.sizeSlider
+        slider.doubleValue = 40
+        NSApp.sendAction(slider.action!, to: slider.target, from: slider)
+        settings.tool = .rectangle
+        palette.island.styleControl.selectedSegment = 2
+        NSApp.sendAction(palette.island.styleControl.action!, to: palette.island.styleControl.target,
+                         from: palette.island.styleControl)
+        check("the options island shows the tool's own",
+              wrong.isEmpty && settings.brushSize == 40 && settings.shapeStyle == .both,
+              wrong.isEmpty ? "all \(Tool.allCases.count) tools show exactly their options and their key; "
+                              + "the size slider set \(Int(settings.brushSize)) px and the style \(settings.shapeStyle)"
+                            : wrong.joined(separator: "; "))
+
+        // The dock.
+        var dockWrong: [String] = []
+        for tool in Tool.allCases {
+            guard let b = palette.dock.buttons[tool] else { dockWrong.append("no tile for \(tool.rawValue)"); continue }
+            if !b.title.isEmpty { dockWrong.append("\(tool.rawValue) tile says \"\(b.title)\"") }
+            if b.image == nil { dockWrong.append("\(tool.rawValue) tile has no symbol") }
+            let tip = b.toolTip ?? ""
+            if !tip.contains(tool.title) || !tip.hasSuffix(tool.key.uppercased()) {
+                dockWrong.append("\(tool.rawValue) tooltip is \"\(tip)\"")
+            }
+            b.performClick(nil)
+            if settings.tool != tool { dockWrong.append("clicking \(tool.rawValue) left \(settings.tool.rawValue)") }
+            let on = palette.dock.buttons.filter { $0.value.state == .on }.map(\.key)
+            if on != [tool] { dockWrong.append("after \(tool.rawValue), lit: \(on.map(\.rawValue))") }
+        }
+        check("dock tiles are icons, keys in tooltips",
+              dockWrong.isEmpty,
+              dockWrong.isEmpty ? "\(Tool.allCases.count) tiles, no letters; each tooltip names its key "
+                                  + "(\(palette.dock.buttons[.brush]?.toolTip ?? "")) and each click selects its tool"
+                                : dockWrong.joined(separator: "; "))
+
+        // The colour capsule.
+        let capsule = palette.colors
+        let closed = capsule.shapeFrame
+        // Shown means not hidden AND inside the capsule's glass: a grid laid out above
+        // the panel instead of in it is just as unusable as a hidden one.
+        func shownOnScreen(_ v: NSView) -> Bool {
+            var cur: NSView? = v
+            while let c = cur { if c.isHidden { return false }; cur = c.superview }
+            return capsule.shapeBounds.contains(v.convert(v.bounds, to: capsule))
+        }
+        let gridHiddenClosed = capsule.gridSwatches.allSatisfy { !shownOnScreen($0) }
+        capsule.setExpanded(true, animated: false)
+        let open = capsule.shapeFrame
+        let gridShownOpen = capsule.gridSwatches.filter(shownOnScreen).count
+        let pick = capsule.gridSwatches[13]
+        pick.onLeft?(pick.color)
+        let took = (settings.foreground.usingColorSpace(.sRGB)?.redComponent ?? -1)
+            == (pick.color.usingColorSpace(.sRGB)?.redComponent ?? -2)
+        let ringed = pick.isSelected && capsule.gridSwatches.filter(\.isSelected).count == 1
+        capsule.setExpanded(false, animated: false)
+        let back = capsule.shapeFrame
+        check("the colour capsule opens like the island",
+              gridHiddenClosed && gridShownOpen == StandardPalette.colors.count
+                  && open.height == ColorCapsule.expandedHeight && closed.height == ColorCapsule.collapsedHeight
+                  && open.minY == closed.minY && back == closed && took && ringed,
+              "closed \(Int(closed.height))pt with the grid \(gridHiddenClosed ? "hidden" : "SHOWING"); open "
+                  + "\(Int(open.height))pt from the same bottom edge (\(open.minY == closed.minY ? "yes" : "NO")) "
+                  + "showing \(gridShownOpen) of \(StandardPalette.colors.count) swatches; a swatch "
+                  + "\(took ? "set" : "DID NOT SET") the colour and is \(ringed ? "the one ringed" : "NOT RINGED ALONE"); "
+                  + "closed again \(back == closed ? "exactly" : "SOMEWHERE ELSE")")
+
+        // The dark toolbar, as the screenshot draws it.
+        let frameView = content.superview ?? content
+        // A white slab is mostly bright; a legible glyph on dark glass is a little light on
+        // a mostly dark ground. The window is not key under the self-test, so the glyphs
+        // are the inactive grey — "light" is measured against that, not against white.
+        func brightShare(_ rep: NSBitmapImageRep, _ b: NSView) -> (bright: Double, any: Bool) {
+            let r = b.convert(b.bounds, to: frameView)
+            let scale = CGFloat(rep.pixelsWide) / frameView.bounds.width
+            let x0 = Int(r.minX * scale), x1 = Int(r.maxX * scale)
+            let y0 = Int((frameView.bounds.height - r.maxY) * scale), y1 = Int((frameView.bounds.height - r.minY) * scale)
+            var lums: [CGFloat] = []
+            for y in max(0, y0)..<min(rep.pixelsHigh, y1) {
+                for x in max(0, x0)..<min(rep.pixelsWide, x1) {
+                    guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    lums.append((c.redComponent + c.greenComponent + c.blueComponent) / 3)
+                }
+            }
+            guard !lums.isEmpty else { return (1, false) }
+            lums.sort()
+            let median = lums[lums.count / 2], top = lums[lums.count * 99 / 100]
+            let bright = Double(lums.filter { $0 > 0.8 }.count) / Double(lums.count)
+            // Legible: the glyph's strokes stand clear of the ground they are drawn on.
+            return (bright, top - median > 0.2)
+        }
+        func toolbarButtons(_ v: NSView) -> [NSButton] {
+            var out: [NSButton] = []
+            if let b = v as? NSButton, String(describing: type(of: v)).contains("Toolbar"), b.isEnabled { out.append(b) }
+            for sub in v.subviews { out += toolbarButtons(sub) }
+            return out
+        }
+        let buttons = toolbarButtons(frameView)
+        let faithful = WindowShot.render(frameView)
+        let shares = buttons.map { brightShare(faithful, $0) }
+        let blobs = shares.filter { $0.bright > 0.5 || !$0.any }.count
+        // The teeth: on macOS 26 every toolbar button stands on a Liquid Glass platter,
+        // and every one of those has to be among what the screenshot stands in for —
+        // the platters are what `cacheDisplay` turned into white slabs.
+        let swap = GlassSnapshot.substitute(in: frameView)
+        swap.restore()
+        let platterNote = GlassPanel.usesLiquidGlass
+            ? "\(swap.swapped) glass views stood in for, the toolbar's platters and the three panels"
+            : "no Liquid Glass on this system"
+        let worst = shares.map(\.bright).max() ?? 1
+        check("a dark toolbar shows its glyphs",
+              buttons.count >= 10 && blobs == 0
+                  && (!GlassPanel.usesLiquidGlass || swap.swapped >= buttons.count + palette.panels.count),
+              "\(buttons.count) enabled toolbar buttons rendered dark: \(blobs) blotted out, at most "
+                  + "\(Int(worst * 100))% of a button bright; \(platterNote)")
+        window.close()
+        PaintboxApp.shared.forget(controller)
+
+        // The icon.
+        func alpha(_ ctx: CGContext, _ x: Int, _ y: Int) -> UInt8 { ctx.sample(x: x, y: y).a }
+        var iconWrong: [String] = []
+        for px in [16, 128, 1024] {
+            let img = AppIcon.render(pixels: px)
+            let ctx = Bitmap.context(from: img)
+            if img.width != px { iconWrong.append("\(px)px came out \(img.width)") }
+            if alpha(ctx, 0, 0) != 0 || alpha(ctx, px - 1, px - 1) != 0 { iconWrong.append("\(px)px corners not clear") }
+            if alpha(ctx, px / 2, px / 2) != 255 { iconWrong.append("\(px)px centre not opaque") }
+            // Inside the tile's corner region but outside its curve: transparent, which a
+            // plain square would not be.
+            let edge = Int(Double(px) * 0.105)
+            if alpha(ctx, edge, edge) > 40 { iconWrong.append("\(px)px is square at the corner") }
+        }
+        let big = Bitmap.context(from: AppIcon.render(pixels: 256))
+        let warm = big.sample(x: 70, y: 60), cool = big.sample(x: 200, y: 215)
+        if !(warm.r > warm.b && cool.b > cool.r) { iconWrong.append("no warm-to-cool wash: \(warm) / \(cool)") }
+        let dir = tmp.appendingPathComponent("Paintbox.iconset")
+        try? AppIcon.writeIconset(to: dir)
+        let written = AppIcon.iconsetFiles.filter { f in
+            Bitmap.load(url: dir.appendingPathComponent(f.name)).map { $0.width == f.pixels } ?? false
+        }.count
+        check("the app icon is a tile on clear",
+              iconWrong.isEmpty && written == AppIcon.iconsetFiles.count,
+              iconWrong.isEmpty ? "clear corners, opaque middle, rounded, warm to cool at 16, 128 and 1024 px; "
+                                  + "\(written) of \(AppIcon.iconsetFiles.count) iconset files written at their sizes"
+                                : iconWrong.joined(separator: "; "))
     }
 
     // ---- "Save a Copy…" must leave the window on the original ----------------
@@ -4729,6 +4944,7 @@ enum SelfTest {
             ("--cutout a b", parse("--cutout", "a.jpg", "b.png"),
              parse("--cutout", "a.jpg", "b.png") == .cutout(input: "a.jpg", output: "b.png")),
             ("--screenshot", parse("--screenshot", "s.png"), parse("--screenshot", "s.png") == .screenshot(output: "s.png")),
+            ("--iconset", parse("--iconset", "P.iconset"), parse("--iconset", "P.iconset") == .iconset(output: "P.iconset")),
             ("--help", parse("--help"), parse("--help") == .help),
         ]
         func isError(_ r: CommandLineRoute) -> Bool { if case .usageError = r { return true }; return false }
@@ -4736,6 +4952,7 @@ enum SelfTest {
             ("--self-test", parse("--self-test")),
             ("--cutout with one file", parse("--cutout", "a.jpg")),
             ("--screenshot with none", parse("--screenshot")),
+            ("--iconset with none", parse("--iconset")),
             ("--cutout a --selftest", parse("--cutout", "a.jpg", "--selftest")),
             ("two flags", parse("--selftest", "--help")),
         ]
@@ -4826,6 +5043,114 @@ enum SelfTest {
 
 // MARK: - Window render check
 
+/// The picture `--screenshot` puts on the canvas: something that looks drawn this year.
+///
+/// The old one — a flat yellow box, a red bar and black "Paintbox" on white — was what
+/// the owner judged the whole app by, and it looked like 2005. Every mark here is one the
+/// app's own tools can make or hold: a soft wash, round shapes, a real brush stroke made
+/// by `Painter.brush`, rounded type, and a sticker floating as a paste.
+enum DemoScene {
+    private static func rgb(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
+        CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255, alpha: a)
+    }
+
+    /// A point on the brush stroke, for the wand.
+    static var strokeProbe: CGPoint { CGPoint(x: 150, y: wave(150).rounded()) }
+    static func wave(_ x: CGFloat) -> CGFloat { 300 + 26 * sin((x - 60) / 58) }
+
+    static func paint(_ doc: PaintDocument) {
+        let w = CGFloat(doc.pixelWidth), h = CGFloat(doc.pixelHeight)
+        doc.edit("Demo") { c in
+            let space = CGColorSpace(name: CGColorSpace.sRGB)!
+            // The wash: warm at the top left, cool at the bottom right.
+            let wash = CGGradient(colorsSpace: space, colors: [rgb(0xFFE6D5), rgb(0xF6E3F7), rgb(0xDCE3FF)] as CFArray,
+                                  locations: [0, 0.5, 1])!
+            c.drawLinearGradient(wash, start: .zero, end: CGPoint(x: w, y: h), options: [])
+            // Soft light, as from out of frame.
+            func glow(_ hex: UInt32, _ alpha: CGFloat, _ centre: CGPoint, _ radius: CGFloat) {
+                let g = CGGradient(colorsSpace: space, colors: [rgb(hex, alpha), rgb(hex, 0)] as CFArray,
+                                   locations: [0, 1])!
+                c.drawRadialGradient(g, startCenter: centre, startRadius: 0, endCenter: centre,
+                                     endRadius: radius, options: [])
+            }
+            glow(0xFF8A7A, 0.55, CGPoint(x: 600, y: 90), 260)
+            glow(0x8FC8FF, 0.50, CGPoint(x: 60, y: 430), 280)
+            // The sun, with a halo.
+            c.setFillColor(rgb(0xFFFFFF, 0.45))
+            c.fillEllipse(in: CGRect(x: 552, y: 52, width: 120, height: 120))
+            c.setFillColor(rgb(0xFFB443))
+            c.fillEllipse(in: CGRect(x: 568, y: 68, width: 88, height: 88))
+            // Two hills, the far one lighter.
+            func hill(_ hex: UInt32, _ y0: CGFloat, _ lift: CGFloat, _ shift: CGFloat) {
+                let p = CGMutablePath()
+                p.move(to: CGPoint(x: 0, y: y0))
+                p.addCurve(to: CGPoint(x: w, y: y0 - 10),
+                           control1: CGPoint(x: w * 0.30 + shift, y: y0 - lift),
+                           control2: CGPoint(x: w * 0.62 + shift, y: y0 + lift * 0.7))
+                p.addLine(to: CGPoint(x: w, y: h))
+                p.addLine(to: CGPoint(x: 0, y: h))
+                p.closeSubpath()
+                c.addPath(p)
+                c.setFillColor(rgb(hex))
+                c.fillPath()
+            }
+            hill(0xA99BF5, 392, 70, 120)
+            hill(0x5E4FD8, 420, 60, -40)
+        }
+        // A real brush stroke, in short segments the way a drag delivers it.
+        var x: CGFloat = 70
+        while x < 430 {
+            let nx = x + 6
+            Painter.brush(in: doc.context, from: CGPoint(x: x, y: wave(x)), to: CGPoint(x: nx, y: wave(nx)),
+                          size: 24, color: NSColor(srgbRed: 1, green: 0.27, blue: 0.43, alpha: 1))
+            x = nx
+        }
+        let rounded = NSFont.systemFont(ofSize: 76, weight: .heavy).fontDescriptor.withDesign(.rounded)
+            .flatMap { NSFont(descriptor: $0, size: 76) } ?? NSFont.boldSystemFont(ofSize: 76)
+        Painter.text(in: doc.context, string: "Paintbox", at: CGPoint(x: 62, y: 120),
+                     font: rounded, color: NSColor(srgbRed: 0.11, green: 0.09, blue: 0.27, alpha: 1))
+        doc.touch()
+    }
+
+    /// A sticker to float: a white card with a sparkle, transparent round its corners.
+    static func sticker() -> CGImage {
+        let size = 128
+        let ctx = Bitmap.makeContext(width: size, height: size)
+        ctx.withTopLeftOrigin { c in
+            let card = CGRect(x: 8, y: 8, width: 112, height: 112)
+            c.saveGState()
+            c.setShadow(offset: CGSize(width: 0, height: -3), blur: 8, color: rgb(0x000000, 0.22))
+            c.addPath(CGPath(roundedRect: card, cornerWidth: 30, cornerHeight: 30, transform: nil))
+            c.setFillColor(rgb(0xFFFFFF))
+            c.fillPath()
+            c.restoreGState()
+            // A four-point sparkle, filled with a warm gradient.
+            let mid = CGPoint(x: 64, y: 64), r: CGFloat = 38, waist: CGFloat = 9
+            let p = CGMutablePath()
+            for i in 0..<4 {
+                let a = CGFloat(i) * .pi / 2
+                let tip = CGPoint(x: mid.x + r * cos(a), y: mid.y + r * sin(a))
+                let next = CGPoint(x: mid.x + r * cos(a + .pi / 2), y: mid.y + r * sin(a + .pi / 2))
+                let ctl = CGPoint(x: mid.x + waist * cos(a + .pi / 4), y: mid.y + waist * sin(a + .pi / 4))
+                if i == 0 { p.move(to: tip) }
+                p.addQuadCurve(to: next, control: ctl)
+            }
+            p.closeSubpath()
+            c.saveGState()
+            c.addPath(p)
+            c.clip()
+            let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                               colors: [rgb(0xFFC93C), rgb(0xFF5E7E)] as CFArray, locations: [0, 1])!
+            c.drawLinearGradient(g, start: CGPoint(x: 26, y: 26), end: CGPoint(x: 102, y: 102), options: [])
+            c.restoreGState()
+            c.setFillColor(rgb(0x7C6CF2))
+            c.fillEllipse(in: CGRect(x: 88, y: 26, width: 14, height: 14))
+        }
+        return ctx.makeImage()!
+    }
+}
+
 /// `Paintbox.app/Contents/MacOS/Paintbox --screenshot out.png`
 ///
 /// Builds the real window, draws a few strokes into the document, lets AppKit lay out,
@@ -4849,6 +5174,17 @@ enum WindowShot {
         }
     }
 
+    /// The view drawn the way the window shows it. `cacheDisplay` turns Liquid Glass into
+    /// opaque white, so the glass is stood in for while it draws; see `GlassSnapshot`.
+    static func render(_ view: NSView) -> NSBitmapImageRep {
+        let restore = GlassSnapshot.substitute(in: view).restore
+        defer { restore() }
+        view.layoutSubtreeIfNeeded()
+        let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return rep
+    }
+
     static func capture(to path: String) {
         // PAINTBOX_APPEARANCE=dark|light renders that appearance whatever the system is
         // set to, so both can be looked at from one machine without touching its settings.
@@ -4857,50 +5193,47 @@ enum WindowShot {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
         default: break
         }
-        let doc = PaintDocument(width: 420, height: 300, fill: .white)
+        let doc = PaintDocument(width: 720, height: 450, fill: .white)
         let controller = PaintWindowController(document: doc)
         let settings = controller.settings
-        settings.foreground = NSColor(srgbRed: 0.1, green: 0.35, blue: 0.85, alpha: 1)
+        settings.foreground = StandardPalette.colors[11]
         settings.tool = .brush
-
-        doc.edit("Demo") { c in
-            c.setFillColor(NSColor(srgbRed: 0.95, green: 0.8, blue: 0.2, alpha: 1).cgColor)
-            c.fill(CGRect(x: 40, y: 40, width: 140, height: 90))
-            c.clear(CGRect(x: 220, y: 40, width: 140, height: 90))
-        }
-        Painter.brush(in: doc.context, from: CGPoint(x: 60, y: 200), to: CGPoint(x: 360, y: 240),
-                      size: 26, color: NSColor(srgbRed: 0.85, green: 0.15, blue: 0.3, alpha: 1))
-        Painter.text(in: doc.context, string: "Paintbox", at: CGPoint(x: 44, y: 150),
-                     font: NSFont.boldSystemFont(ofSize: 40), color: .black)
-        doc.touch()
+        DemoScene.paint(doc)
 
         // Two things that only exist in the editing half and that the pixel checks
         // cannot show: marching ants tracing an IRREGULAR mask (the brush stroke, wanded
         // by colour) and a floating paste with its corner handles.
         controller.canvas.selection = MagicWand.select(in: doc.context,
-                                                       at: CGPoint(x: 200, y: 220),
-                                                       tolerance: 40, contiguous: true)
-        let badge = Bitmap.makeContext(width: 90, height: 60)
-        badge.withTopLeftOrigin { c in
-            c.setFillColor(NSColor(srgbRed: 0.2, green: 0.6, blue: 0.35, alpha: 1).cgColor)
-            c.fill(CGRect(x: 0, y: 0, width: 90, height: 60))
-            c.setFillColor(NSColor.white.cgColor)
-            c.fill(CGRect(x: 8, y: 8, width: 74, height: 44))
-        }
-        controller.canvas.beginFloating(image: badge.makeImage()!,
-                                        at: CGPoint(x: 250, y: 40))
+                                                       at: DemoScene.strokeProbe,
+                                                       tolerance: 24, contiguous: true)
+        controller.canvas.beginFloating(image: DemoScene.sticker(), at: CGPoint(x: 528, y: 196))
 
         controller.showWindow(nil)
         controller.window?.orderFrontRegardless()
+        // Key, so the window is drawn as the one in use: traffic lights in colour and
+        // toolbar glyphs at full strength, not the dimmed look of a window behind another.
+        // A process started from a terminal is not allowed to take the focus, so the
+        // window is told to draw as key instead.
+        // `drawsAsKey` covers what asks `isKeyWindow`; the title bar and the toolbar ask
+        // AppKit's own active-appearance questions instead, which have no public override.
+        // This process exists only to take this picture and then exit, so they are
+        // answered here, for the screenshot window class alone, and nowhere else.
+        (controller.window as? PaintWindow)?.drawsAsKey = true
+        for name in ["_hasActiveAppearance", "_hasActiveAppearanceIgnoringKeyFocus",
+                     "_hasKeyAppearance", "_hasMainAppearance"] {
+            let sel = NSSelectorFromString(name)
+            guard class_getInstanceMethod(NSWindow.self, sel) != nil else { continue }
+            let yes: @convention(block) (AnyObject) -> Bool = { _ in true }
+            class_replaceMethod(PaintWindow.self, sel, imp_implementationWithBlock(yes), "c@:")
+        }
 
         // Let the async layout in buildUI run, then capture.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             guard let window = controller.window, let content = window.contentView else { exit(1) }
             // The content view's superview is the window frame, so the toolbar is included.
             let view = content.superview ?? content
+            let rep = render(view)
             let bounds = view.bounds
-            guard let rep = view.bitmapImageRepForCachingDisplay(in: bounds) else { exit(1) }
-            view.cacheDisplay(in: bounds, to: rep)
             let scale = rep.pixelsWide > Int(bounds.width) ? 2 : 1
             if let data = rep.representation(using: .png, properties: [:]) {
                 if let failure = writePNG(data, to: path) {

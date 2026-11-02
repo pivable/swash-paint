@@ -1,11 +1,12 @@
 import AppKit
 
-/// A small square that shows a colour and reports left/right clicks separately.
+/// A round colour chip that reports left/right clicks separately.
 final class SwatchButton: NSView {
     var color: NSColor { didSet { needsDisplay = true } }
     var onLeft: ((NSColor) -> Void)?
     var onRight: ((NSColor) -> Void)?
-    var isSelected = false { didSet { needsDisplay = true } }
+    /// Ringed in the accent colour: this is the colour the next stroke is drawn in.
+    var isSelected = false { didSet { if isSelected != oldValue { needsDisplay = true } } }
 
     init(color: NSColor) {
         self.color = color
@@ -14,54 +15,61 @@ final class SwatchButton: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func draw(_ dirtyRect: NSRect) {
-        // Rounded, with a hairline in the system separator colour so white still has an
-        // edge on a light sidebar and black still has one on a dark sidebar.
-        let r = bounds.insetBy(dx: 1.5, dy: 1.5)
-        let p = NSBezierPath(roundedRect: r, xRadius: Theme.swatchRadius, yRadius: Theme.swatchRadius)
+        // A hairline in the system separator colour, so white still has an edge on light
+        // glass and black still has one on dark glass.
+        let inset: CGFloat = isSelected ? 4 : 3
+        let r = bounds.insetBy(dx: inset, dy: inset)
+        let p = NSBezierPath(ovalIn: r)
         color.setFill()
         p.fill()
         NSColor.separatorColor.setStroke()
         p.lineWidth = 1
         p.stroke()
+        if isSelected {
+            let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 1.25, dy: 1.25))
+            ring.lineWidth = 1.5
+            NSColor.controlAccentColor.setStroke()
+            ring.stroke()
+        }
     }
 
     override func mouseDown(with event: NSEvent) { onLeft?(color) }
     override func rightMouseDown(with event: NSEvent) { onRight?(color) }
 }
 
-/// Foreground-over-background colour wells, MS Paint style.
+/// The two colours in play: the line colour in front, the second colour behind it.
 final class ColorWellsView: NSView {
     var foreground: NSColor = .black { didSet { needsDisplay = true } }
     var background: NSColor = .white { didSet { needsDisplay = true } }
     var onPickForeground: (() -> Void)?
     var onPickBackground: (() -> Void)?
-    var onSwap: (() -> Void)?
 
-    private var fgRect: CGRect { CGRect(x: 2, y: bounds.height - 30, width: 30, height: 28) }
-    private var bgRect: CGRect { CGRect(x: 20, y: bounds.height - 44, width: 30, height: 28) }
-    private var swapRect: CGRect { CGRect(x: 56, y: bounds.height - 40, width: 22, height: 22) }
+    static let size = CGSize(width: 42, height: 38)
+    private var fgRect: CGRect { CGRect(x: 2, y: bounds.height - 28, width: 26, height: 26) }
+    private var bgRect: CGRect { CGRect(x: 14, y: 2, width: 26, height: 26) }
 
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
         func well(_ r: CGRect, _ c: NSColor) {
-            let outer = NSBezierPath(roundedRect: r.insetBy(dx: -2, dy: -2), xRadius: 7, yRadius: 7)
+            let outer = NSBezierPath(ovalIn: r.insetBy(dx: -2, dy: -2))
             NSGraphicsContext.saveGraphicsState()
             let shadow = NSShadow()
-            shadow.shadowColor = NSColor(white: 0, alpha: 0.25)
+            shadow.shadowColor = NSColor(white: 0, alpha: 0.28)
             shadow.shadowBlurRadius = 3
             shadow.shadowOffset = CGSize(width: 0, height: -1)
             shadow.set()
             NSColor.white.setFill(); outer.fill()
             NSGraphicsContext.restoreGraphicsState()
-            let inner = NSBezierPath(roundedRect: r, xRadius: 5, yRadius: 5)
+            let inner = NSBezierPath(ovalIn: r)
             NSGraphicsContext.saveGraphicsState()
             inner.addClip()
-            // A checkerboard under the swatch, so a colour with alpha below 1 — which the
+            // A checkerboard under the colour, so a colour with alpha below 1 — which the
             // system picker offers by default, and which the eyedropper hands you from any
             // soft edge — LOOKS translucent. Painted flat on white it looked like an
             // ordinary pale colour, and the user had no way to tell why their strokes were
             // coming out faint or not at all.
+            NSColor.white.setFill(); r.fill()
             NSColor(white: 0.84, alpha: 1).setFill()
             let square: CGFloat = 5
             var y = r.minY
@@ -78,266 +86,16 @@ final class ColorWellsView: NSView {
             }
             c.setFill(); r.fill()
             NSGraphicsContext.restoreGraphicsState()
-            NSColor.separatorColor.setStroke()
-            inner.lineWidth = 1; inner.stroke()
+            NSColor(white: 0, alpha: 0.12).setStroke()
+            inner.lineWidth = 0.5; inner.stroke()
         }
         well(bgRect, background)
         well(fgRect, foreground)
-        if let swap = NSImage(systemSymbolName: "arrow.left.arrow.right",
-                              accessibilityDescription: "Swap colours")?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)
-                .applying(.init(paletteColors: [.secondaryLabelColor]))) {
-            let s = swap.size
-            swap.draw(in: CGRect(x: swapRect.midX - s.width / 2, y: swapRect.midY - s.height / 2,
-                                 width: s.width, height: s.height))
-        }
     }
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        if swapRect.contains(p) { onSwap?() }
-        else if fgRect.contains(p) { onPickForeground?() }
+        if fgRect.insetBy(dx: -2, dy: -2).contains(p) { onPickForeground?() }
         else if bgRect.insetBy(dx: -2, dy: -2).contains(p) { onPickBackground?() }
-    }
-}
-
-/// The left-hand tool palette: tools, colours, and the four settings sliders.
-final class PaletteView: NSView {
-    static let preferredWidth: CGFloat = 156
-
-    private let settings: ToolSettings
-    private var toolButtons: [Tool: NSButton] = [:]
-    private let wells = ColorWellsView()
-    private let sizeSlider = NSSlider()
-    private let strokeSlider = NSSlider()
-    private let toleranceSlider = NSSlider()
-    private let wandSlider = NSSlider()
-    private let sizeLabel = NSTextField(labelWithString: "")
-    private let strokeLabel = NSTextField(labelWithString: "")
-    private let toleranceLabel = NSTextField(labelWithString: "")
-    private let wandLabel = NSTextField(labelWithString: "")
-    private let styleControl = NSSegmentedControl(labels: PaletteView.shapeStyleSegments.map(\.label),
-                                                  trackingMode: .selectOne, target: nil, action: nil)
-    var onColorPanelRequest: ((Bool) -> Void)?
-
-    /// Called the moment any palette control is used, before it changes a thing.
-    ///
-    /// The palette is the one place a click changes a tool or a setting without going
-    /// through the window controller, which commits pending edits first. A swatch and the
-    /// colour wells do not even take the keyboard, so the text editor's own end-of-editing
-    /// never fires for them: without this, a half-typed text box would still be sitting on
-    /// the canvas while the colour it is about to be drawn in changed underneath it.
-    var onInteraction: (() -> Void)?
-
-    // MARK: - The shape-style segments
-    //
-    // "Outline" is the honest word for the first one and it does not fit. The control is
-    // 140pt wide inside a 156pt palette, so a segment has about 34pt for its text, and
-    // AppKit drew "Out..." — which does not read as a choice, it reads as an interface
-    // that was never finished. Widening it is not available (the palette's width is what
-    // makes room for the canvas) so the words are short enough to draw and the full
-    // meaning is in the tooltip. `shapeStyleFits` is the rule, checked by the self-test,
-    // so a future rewording cannot quietly reintroduce the ellipsis.
-
-    /// What each segment says, and what it means on hover.
-    static let shapeStyleSegments: [(label: String, help: String)] = [
-        ("Line", "Outline only, drawn in the line colour"),
-        ("Fill", "Filled, with no outline"),
-        ("Both", "Filled, with an outline round it"),
-    ]
-
-    /// Small enough that three labels fit across the palette, large enough to read.
-    static let shapeStyleFont = NSFont.systemFont(ofSize: 11)
-
-    /// One segment's width: the control's 140pt shared equally, rounded down.
-    static let shapeStyleSegmentWidth: CGFloat = 46
-
-    /// Whether a label draws whole in one segment. The 12pt is the padding AppKit puts
-    /// either side of a segment's text; a label that needs more than what is left is the
-    /// one that comes out with an ellipsis.
-    static func shapeStyleFits(_ label: String) -> Bool {
-        shapeStyleTextWidth(label) + 12 <= shapeStyleSegmentWidth
-    }
-
-    /// How wide `label` draws at the control's own font.
-    static func shapeStyleTextWidth(_ label: String) -> CGFloat {
-        (label as NSString).size(withAttributes: [.font: shapeStyleFont]).width
-    }
-
-    init(settings: ToolSettings) {
-        self.settings = settings
-        super.init(frame: CGRect(x: 0, y: 0, width: PaletteView.preferredWidth, height: 600))
-        wantsLayer = true
-        build()
-        refresh()
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    override var isFlipped: Bool { true }
-
-    // No `draw`: the palette is transparent, so the sidebar material behind it — set up
-    // by the window controller — is what shows, light or dark, tinted by the desktop.
-
-    /// Section headings, in the sentence case macOS sidebars use.
-    private func label(_ s: String) -> NSTextField {
-        let l = NSTextField(labelWithString: s.capitalized)
-        l.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        l.textColor = .secondaryLabelColor
-        return l
-    }
-
-    private func build() {
-        var y: CGFloat = 10
-
-        let toolsHeader = label("TOOLS")
-        toolsHeader.frame = CGRect(x: 10, y: y, width: 120, height: 14)
-        addSubview(toolsHeader)
-        y += 18
-
-        let cols = 2
-        let bw: CGFloat = 66, bh: CGFloat = 40
-        for (i, tool) in Tool.allCases.enumerated() {
-            let col = i % cols, row = i / cols
-            let b = ToolTileButton(frame: CGRect(x: 8 + CGFloat(col) * (bw + 4),
-                                                 y: y + CGFloat(row) * (bh + 4), width: bw, height: bh))
-            b.title = tool.key.uppercased()
-            if let img = NSImage(systemSymbolName: tool.symbolName, accessibilityDescription: tool.title)?
-                .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) {
-                b.image = img
-                b.imagePosition = .imageLeading
-            } else {
-                b.imagePosition = .noImage
-            }
-            b.toolTip = "\(tool.title)  (\(tool.key.uppercased()))"
-            b.target = self
-            b.action = #selector(toolClicked(_:))
-            b.tag = i
-            addSubview(b)
-            toolButtons[tool] = b
-        }
-        y += CGFloat((Tool.allCases.count + cols - 1) / cols) * (bh + 4) + 10
-
-        let colorHeader = label("COLOURS")
-        colorHeader.frame = CGRect(x: 10, y: y, width: 120, height: 14)
-        addSubview(colorHeader)
-        y += 18
-
-        wells.frame = CGRect(x: 8, y: y, width: 140, height: 48)
-        wells.onPickForeground = { [weak self] in self?.onInteraction?(); self?.onColorPanelRequest?(true) }
-        wells.onPickBackground = { [weak self] in self?.onInteraction?(); self?.onColorPanelRequest?(false) }
-        wells.onSwap = { [weak self] in self?.onInteraction?(); self?.settings.swapColors(); self?.refresh() }
-        addSubview(wells)
-        y += 52
-
-        let sw: CGFloat = 20
-        for (i, c) in StandardPalette.colors.enumerated() {
-            let col = i % 7, row = i / 7
-            let s = SwatchButton(color: c)
-            s.frame = CGRect(x: 8 + CGFloat(col) * sw, y: y + CGFloat(row) * sw, width: sw, height: sw)
-            s.toolTip = "Click: foreground · Right-click: background"
-            s.onLeft = { [weak self] c in self?.onInteraction?(); self?.settings.foreground = c; self?.refresh() }
-            s.onRight = { [weak self] c in self?.onInteraction?(); self?.settings.background = c; self?.refresh() }
-            addSubview(s)
-        }
-        y += CGFloat((StandardPalette.colors.count + 6) / 7) * sw + 8
-
-        let more = NSButton(title: "Colour Picker…", target: self, action: #selector(moreColors(_:)))
-        more.frame = CGRect(x: 8, y: y, width: 140, height: 22)
-        more.bezelStyle = .push
-        more.controlSize = .regular
-        more.font = NSFont.systemFont(ofSize: 12)
-        more.image = NSImage(systemSymbolName: "eyedropper.halffull", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
-        more.imagePosition = .imageLeading
-        addSubview(more)
-        y += 30
-
-        let optHeader = label("OPTIONS")
-        optHeader.frame = CGRect(x: 10, y: y, width: 120, height: 14)
-        addSubview(optHeader)
-        y += 18
-
-        func addSlider(_ slider: NSSlider, _ lbl: NSTextField, title: String,
-                       min: Double, max: Double, action: Selector) {
-            let t = label(title)
-            t.frame = CGRect(x: 10, y: y, width: 102, height: 14)
-            addSubview(t)
-            lbl.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-            lbl.textColor = .secondaryLabelColor
-            lbl.alignment = .right
-            lbl.frame = CGRect(x: 106, y: y, width: 42, height: 14)
-            addSubview(lbl)
-            y += 16
-            slider.minValue = min
-            slider.maxValue = max
-            slider.target = self
-            slider.action = action
-            slider.isContinuous = true
-            slider.frame = CGRect(x: 8, y: y, width: 140, height: 20)
-            addSubview(slider)
-            y += 26
-        }
-
-        addSlider(sizeSlider, sizeLabel, title: "BRUSH SIZE", min: 1, max: 96,
-                  action: #selector(sizeChanged(_:)))
-        addSlider(strokeSlider, strokeLabel, title: "LINE WIDTH", min: 1, max: 48,
-                  action: #selector(strokeChanged(_:)))
-        addSlider(toleranceSlider, toleranceLabel, title: "FILL TOLERANCE", min: 0, max: 255,
-                  action: #selector(toleranceChanged(_:)))
-        addSlider(wandSlider, wandLabel, title: "WAND TOLERANCE", min: 0, max: 255,
-                  action: #selector(wandChanged(_:)))
-
-        let styleHeader = label("SHAPE STYLE")
-        styleHeader.frame = CGRect(x: 10, y: y, width: 120, height: 14)
-        addSubview(styleHeader)
-        y += 18
-        styleControl.frame = CGRect(x: 8, y: y, width: 140, height: 22)
-        styleControl.target = self
-        styleControl.action = #selector(styleChanged(_:))
-        styleControl.font = PaletteView.shapeStyleFont
-        styleControl.segmentDistribution = .fillEqually
-        for (i, segment) in PaletteView.shapeStyleSegments.enumerated() {
-            styleControl.setWidth(PaletteView.shapeStyleSegmentWidth, forSegment: i)
-            styleControl.setToolTip(segment.help, forSegment: i)
-        }
-        addSubview(styleControl)
-        y += 30
-
-        setFrameSize(CGSize(width: PaletteView.preferredWidth, height: y + 10))
-    }
-
-    var fittingHeight: CGFloat { frame.height }
-
-    @objc private func toolClicked(_ sender: NSButton) {
-        onInteraction?()
-        settings.tool = Tool.allCases[sender.tag]
-        refresh()
-    }
-    @objc private func sizeChanged(_ s: NSSlider) { onInteraction?(); settings.brushSize = CGFloat(s.doubleValue); refresh() }
-    @objc private func strokeChanged(_ s: NSSlider) { onInteraction?(); settings.strokeWidth = CGFloat(s.doubleValue); refresh() }
-    @objc private func toleranceChanged(_ s: NSSlider) { onInteraction?(); settings.tolerance = Int(s.doubleValue); refresh() }
-    @objc private func wandChanged(_ s: NSSlider) { onInteraction?(); settings.wandTolerance = Int(s.doubleValue); refresh() }
-    @objc private func styleChanged(_ s: NSSegmentedControl) {
-        onInteraction?()
-        settings.shapeStyle = ShapeStyle(rawValue: s.selectedSegment) ?? .outline
-    }
-    @objc private func moreColors(_ sender: Any?) { onInteraction?(); onColorPanelRequest?(true) }
-
-    func refresh() {
-        for (tool, button) in toolButtons {
-            button.state = (tool == settings.tool) ? .on : .off
-            (button as? ToolTileButton)?.restyle()
-        }
-        wells.foreground = settings.foreground
-        wells.background = settings.background
-        sizeSlider.doubleValue = Double(settings.brushSize)
-        strokeSlider.doubleValue = Double(settings.strokeWidth)
-        toleranceSlider.doubleValue = Double(settings.tolerance)
-        wandSlider.doubleValue = Double(settings.wandTolerance)
-        sizeLabel.stringValue = "\(Int(settings.brushSize)) px"
-        strokeLabel.stringValue = "\(Int(settings.strokeWidth)) px"
-        toleranceLabel.stringValue = "\(settings.tolerance)"
-        wandLabel.stringValue = "\(settings.wandTolerance)"
-        styleControl.selectedSegment = settings.shapeStyle.rawValue
     }
 }

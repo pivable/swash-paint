@@ -31,7 +31,7 @@ and a declarative layer fights you for no gain.
 ./Paintbox.app/Contents/MacOS/Paintbox --selftest
 ```
 
-**200 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
+**206 checks, exit 0. Never let that number go down.** They assert real pixels rather than that
 the code ran: that right-angle rotation is lossless, that alpha survives all seven save
 formats, that a blur leaves every pixel outside the selection untouched, that undo restores
 byte for byte, and that background removal actually finds a subject.
@@ -40,11 +40,26 @@ Two more entry points, and both matter because `screencapture` returns black on 
 
 ```
 --screenshot out.png        # renders the real window's view tree to a PNG. This is how you SEE it.
-                            # PAINTBOX_APPEARANCE=dark (or light) picks the appearance. The view
-                            # tree draws the sidebar material flat and, in dark, the toolbar
-                            # icons as white shapes; the app on screen does neither.
+                            # PAINTBOX_APPEARANCE=dark (or light) picks the appearance.
+--iconset DIR.iconset       # draws the app icon at every size; build.sh runs it, then iconutil
 --cutout in.jpg out.png     # background removal, headless, format from the output extension
 ```
+
+**What `--screenshot` cannot draw, and what it does instead.** `cacheDisplay` renders every
+`NSGlassEffectView` as an opaque white slab — the toolbar's buttons each stand on one on
+macOS 26, so in dark mode every toolbar glyph (white) vanished into white. That was the
+screenshot, never the app: the glyphs are plain template SF Symbols. `GlassSnapshot`
+(Theme.swift) swaps each glass view for a drawn stand-in while the picture is taken, and
+the window is made to draw as key, since a process started from a terminal may not take
+the focus. Blur behind glass is the one thing the stand-in does not reproduce.
+
+**The layout.** The canvas has the full window width; tools (`ToolDock`), the current
+tool's options (`OptionsIsland`) and colours (`ColorCapsule`) float over it as
+`GlassPanel`s, all in `FloatingPanels.swift`. A panel's view is larger than the panel by
+`GlassPanel.outset`, and draws its own soft shadow there, because layer shadows do not
+survive `cacheDisplay`; clicks in that margin fall through. `NSGlassEffectView` is behind
+`#if compiler(>=6.2)` as well as `#available(macOS 26.0, *)`, because install.sh builds on
+the user's machine and an older SDK has no such symbol.
 
 **A green suite is not the running system.** Every mouse interaction — the drawing tools, the
 shift constraints, the floating-paste handles, the dialogs — is verified only by code. When you

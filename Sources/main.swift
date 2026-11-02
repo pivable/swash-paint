@@ -20,6 +20,7 @@ enum CommandLineRoute: Equatable {
     case selftest
     case cutout(input: String, output: String)
     case screenshot(output: String)
+    case iconset(output: String)
     case help
     case usageError(String)
 
@@ -28,6 +29,7 @@ enum CommandLineRoute: Equatable {
                Paintbox --selftest               run the self-tests, exit 0 when all pass
                Paintbox --cutout IN OUT          remove the background from IN, write OUT
                Paintbox --screenshot OUT.png     render the window to a PNG
+               Paintbox --iconset DIR.iconset    draw the app icon at every size (build.sh uses it)
                Paintbox --help
         """
 
@@ -54,6 +56,9 @@ enum CommandLineRoute: Equatable {
         case "--screenshot":
             guard let o = operands(1) else { return .usageError("--screenshot needs an output file") }
             result = .screenshot(output: o[0]); used = 1
+        case "--iconset":
+            guard let o = operands(1) else { return .usageError("--iconset needs an output folder") }
+            result = .iconset(output: o[0]); used = 1
         default:
             return .usageError("unknown option \(flag)")
         }
@@ -174,6 +179,19 @@ if case .cutout(let input, let output) = route {
     for line in result.out { print(line) }
     if let err = result.err { FileHandle.standardError.write(Data((err + "\n").utf8)) }
     exit(result.code)
+}
+
+if case .iconset(let output) = route {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.prohibited)
+    do {
+        try AppIcon.writeIconset(to: URL(fileURLWithPath: output))
+        print("wrote \(AppIcon.iconsetFiles.count) icon sizes to \(output)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("Paintbox: could not write \(output): \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
 }
 
 if case .screenshot(let output) = route {

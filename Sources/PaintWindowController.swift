@@ -9,6 +9,19 @@ final class CenteringClipView: NSClipView {
     override func draw(_ dirtyRect: NSRect) {
         Theme.backdrop.setFill()
         dirtyRect.fill()
+        // A faint dot grid: the backdrop reads as a surface the paper rests on, as it
+        // does in Freeform, rather than as an empty grey hole round the picture.
+        Theme.backdropDot.setFill()
+        let step: CGFloat = 22, dot: CGFloat = 2
+        var y = (dirtyRect.minY / step).rounded(.down) * step
+        while y <= dirtyRect.maxY {
+            var x = (dirtyRect.minX / step).rounded(.down) * step
+            while x <= dirtyRect.maxX {
+                NSBezierPath(ovalIn: CGRect(x: x - dot / 2, y: y - dot / 2, width: dot, height: dot)).fill()
+                x += step
+            }
+            y += step
+        }
         guard let doc = documentView else { return }
         let paper = doc.frame
         NSGraphicsContext.saveGraphicsState()
@@ -40,6 +53,25 @@ final class CenteringClipView: NSClipView {
     }
 }
 
+/// The document window. Its one addition is for `--screenshot`: a process launched from
+/// a terminal may not take the focus from it, so its window would be drawn inactive —
+/// grey traffic lights, dimmed toolbar glyphs — which is not how anyone sees the app.
+final class PaintWindow: NSWindow {
+    var drawsAsKey = false
+    override var isKeyWindow: Bool { drawsAsKey || super.isKeyWindow }
+    override var isMainWindow: Bool { drawsAsKey || super.isMainWindow }
+}
+
+/// The window's content: canvas, status line, and the floating panels, which have to be
+/// re-placed whenever the window changes size because they are centred, not pinned.
+final class WorkspaceView: NSView {
+    var onResize: (() -> Void)?
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        onResize?()
+    }
+}
+
 final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDocumentObserver,
                                    CanvasViewDelegate, NSToolbarDelegate, NSMenuItemValidation,
                                    NSToolbarItemValidation,
@@ -48,7 +80,9 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
     let paintDocument: PaintDocument
     let settings = ToolSettings()
     private(set) var canvas: CanvasView!
-    private var palette: PaletteView!
+    /// Not private: the self-test reads the panels' real state and frames.
+    private(set) var palette: FloatingPalette!
+    static let statusHeight: CGFloat = 24
     private var scrollView: NSScrollView!
     /// Not private: the floating paste's instruction lives here and nowhere else now,
     /// so the self-test reads what it says and measures whether it fits.
@@ -59,7 +93,7 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
 
     init(document paintDocument: PaintDocument) {
         self.paintDocument = paintDocument
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1100, height: 760),
+        let window = PaintWindow(contentRect: CGRect(x: 0, y: 0, width: 1100, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.minSize = CGSize(width: 640, height: 420)
@@ -86,42 +120,23 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
 
     private func buildUI() {
         guard let window else { return }
-        let content = NSView(frame: window.contentLayoutRect)
+        let content = WorkspaceView(frame: window.contentLayoutRect)
         content.autoresizingMask = [.width, .height]
-
-        // The sidebar: the system's own translucent material, as Finder, Mail and Notes
-        // use, so it follows light and dark and picks up the desktop's tint by itself.
-        let sidebar = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: PaletteView.preferredWidth,
-                                                       height: content.bounds.height))
-        sidebar.material = .sidebar
-        sidebar.blendingMode = .behindWindow
-        sidebar.state = .followsWindowActiveState
-        sidebar.autoresizingMask = [.height]
-        content.addSubview(sidebar)
-
-        palette = PaletteView(settings: settings)
-        let paletteScroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: PaletteView.preferredWidth,
-                                                       height: content.bounds.height))
-        paletteScroll.hasVerticalScroller = true
-        paletteScroll.drawsBackground = false
-        paletteScroll.autohidesScrollers = true
-        paletteScroll.documentView = palette
-        paletteScroll.autoresizingMask = [.height]
-        palette.onColorPanelRequest = { [weak self] fg in self?.showColorPanel(foreground: fg) }
-        // Using the palette is using the app, exactly as the Tools menu is: whatever is
-        // still in mid-air over the bitmap is settled before the click takes effect.
-        palette.onInteraction = { [weak self] in self?.canvas?.finishPendingEdits() }
-        content.addSubview(paletteScroll)
 
         canvas = CanvasView(document: paintDocument, settings: settings)
         canvas.delegate = self
 
-        scrollView = NSScrollView(frame: CGRect(x: PaletteView.preferredWidth, y: 22,
-                                                width: content.bounds.width - PaletteView.preferredWidth,
-                                                height: content.bounds.height - 22))
+        // The canvas has the whole width of the window. The tools, the colours and the
+        // current tool's options float over it on glass instead of taking a sidebar.
+        scrollView = NSScrollView(frame: CGRect(x: 0, y: Self.statusHeight,
+                                                width: content.bounds.width,
+                                                height: content.bounds.height - Self.statusHeight))
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
+        // Only while there is somewhere to scroll to: a fixed scroller strip down the right
+        // of a picture that fits is a frame round nothing.
+        scrollView.autohidesScrollers = true
         scrollView.allowsMagnification = false
         scrollView.backgroundColor = Theme.backdrop
         scrollView.drawsBackground = true
@@ -132,22 +147,30 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         scrollView.documentView = canvas
         content.addSubview(scrollView)
 
+        palette = FloatingPalette(settings: settings)
+        palette.onColorPanelRequest = { [weak self] fg in self?.showColorPanel(foreground: fg) }
+        palette.onChooseFont = { [weak self] in self?.chooseFont(nil) }
+        // Using the palette is using the app, exactly as the Tools menu is: whatever is
+        // still in mid-air over the bitmap is settled before the click takes effect.
+        palette.onInteraction = { [weak self] in self?.canvas?.finishPendingEdits() }
+        palette.install(in: content)
+        content.onResize = { [weak self] in self?.layoutPanels() }
+        layoutPanels()
+
         // A hairline between the canvas and the status line, instead of a hard edge.
-        let rule = NSBox(frame: CGRect(x: PaletteView.preferredWidth, y: 21,
-                                       width: content.bounds.width - PaletteView.preferredWidth, height: 1))
+        let rule = NSBox(frame: CGRect(x: 0, y: Self.statusHeight - 1, width: content.bounds.width, height: 1))
         rule.boxType = .separator
         rule.autoresizingMask = [.width]
         content.addSubview(rule)
 
         statusLabel = NSTextField(labelWithString: "")
-        statusLabel.frame = CGRect(x: PaletteView.preferredWidth + 8, y: 3,
-                                   width: content.bounds.width - PaletteView.preferredWidth - 16, height: 16)
+        statusLabel.frame = CGRect(x: 12, y: 4, width: content.bounds.width - 24, height: 16)
         statusLabel.autoresizingMask = [.width]
         statusLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         statusLabel.textColor = .secondaryLabelColor
+        statusLabel.lineBreakMode = .byTruncatingTail
         content.addSubview(statusLabel)
 
-        window.contentView = content
 
         settings.onChange = { [weak self] in
             guard let self else { return }
@@ -179,11 +202,39 @@ final class PaintWindowController: NSWindowController, NSWindowDelegate, PaintDo
         // `SelfTest.checkToolbarFitsTheDefaultWindow` is what keeps this true.
         window.toolbarStyle = .expanded
 
+        // Installed only once the toolbar is: the expanded toolbar settles at a different
+        // height from the one it is first measured at, and a content view put in before
+        // that was left 15pt short of the toolbar, with a bare strip of window between.
+        window.contentView = content
+
         DispatchQueue.main.async { [weak self] in
+            self?.fitContentToWindow()
             self?.canvas.zoomToFitIfLarger()
             self?.window?.makeFirstResponder(self?.canvas)
             self?.updateStatus(nil)
         }
+    }
+
+    /// The content view filling the window below the toolbar, whatever AppKit did to it.
+    ///
+    /// The expanded toolbar is measured 15pt taller than it settles, and when it settles
+    /// the window shrinks by that much and takes it off the content view's height too —
+    /// leaving a bare strip of window between the toolbar and the canvas. Seen in the
+    /// screenshot, and asserted by `SelfTest.floatingPaletteChecks`.
+    func fitContentToWindow() {
+        guard let window, let content = window.contentView else { return }
+        let want = CGRect(origin: .zero, size: window.contentLayoutRect.size)
+        if content.frame != want { content.frame = want }
+    }
+
+    func windowDidResize(_ notification: Notification) { fitContentToWindow() }
+
+    /// The panels go over the canvas area, and zoom-to-fit is told what they cover so a
+    /// fitted picture is never hidden under one.
+    private func layoutPanels() {
+        guard let scrollView, let palette else { return }
+        palette.layout(in: scrollView.frame)
+        canvas.fitMargins = palette.fitMargins
     }
 
     // MARK: - Toolbar

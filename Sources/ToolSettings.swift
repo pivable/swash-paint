@@ -20,7 +20,7 @@ enum Tool: String, CaseIterable {
         }
     }
 
-    /// Single-key shortcut, shown in the Tools menu and on the palette buttons.
+    /// Single-key shortcut, shown in the Tools menu, the dock tooltips and the options island.
     var key: String {
         switch self {
         case .pencil: return "p"
@@ -90,21 +90,30 @@ final class ToolSettings {
     }
 }
 
-/// The standard palette: twenty colours in MS Paint's own order, laid out seven to a
-/// row by `PaletteView` so they fit a 156 pt column.
+/// The palette: a row of neutrals, the system's own hues, and a row of deeper and softer
+/// ones — twenty-four colours, twelve to a row in the colour capsule.
+///
+/// It used to be MS Paint's twenty, in MS Paint's order, and the pure primaries of a 1990s
+/// palette were half of why the app looked its age. Black and white stay exact, because
+/// people draw with them and expect 0 and 255.
 enum StandardPalette {
-    static let colors: [NSColor] = {
-        func c(_ r: Int, _ g: Int, _ b: Int) -> NSColor {
-            NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
-        }
-        return [
-            c(0, 0, 0), c(127, 127, 127), c(136, 0, 21), c(237, 28, 36),
-            c(255, 127, 39), c(255, 242, 0), c(34, 177, 76), c(0, 162, 232),
-            c(63, 72, 204), c(163, 73, 164), c(255, 255, 255), c(195, 195, 195),
-            c(185, 122, 87), c(255, 174, 201), c(255, 201, 14), c(239, 228, 176),
-            c(181, 230, 29), c(153, 217, 234), c(112, 146, 190), c(200, 191, 231),
-        ]
-    }()
+    private static func c(_ hex: UInt32) -> NSColor {
+        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+    }
+
+    static let colors: [NSColor] = [
+        // Neutrals, then the warm half of the system hues.
+        0x000000, 0x3A3A3C, 0x8E8E93, 0xD1D1D6, 0xFFFFFF, 0xFF3B30,
+        0xFF9500, 0xFFCC00, 0x34C759, 0x00C7BE, 0x32ADE6, 0x007AFF,
+        // The cool half, then deeper and softer tones.
+        0x5856D6, 0xAF52DE, 0xFF2D55, 0xA2845E, 0x1E3A8A, 0x14532D,
+        0x7F1D1D, 0xFFD6A5, 0xFDCFE8, 0xCDB4F6, 0xBDE0FE, 0xC7F0D8,
+    ].map(c)
+
+    /// The ones on show while the capsule is closed: what most drawings are made of.
+    static let quick: [NSColor] = [0x000000, 0xFFFFFF, 0xFF3B30, 0xFF9500, 0xFFCC00,
+                                   0x34C759, 0x007AFF, 0xAF52DE].map(c)
 }
 
 /// Every SF Symbol the interface asks for, in one place so the self-test can check
