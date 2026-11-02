@@ -5043,112 +5043,134 @@ enum SelfTest {
 
 // MARK: - Window render check
 
-/// The picture `--screenshot` puts on the canvas: something that looks drawn this year.
+/// The picture `--screenshot` puts on the canvas: a wallpaper with the logo painted on it.
 ///
-/// The old one — a flat yellow box, a red bar and black "Paintbox" on white — was what
-/// the owner judged the whole app by, and it looked like 2005. Every mark here is one the
-/// app's own tools can make or hold: a soft wash, round shapes, a real brush stroke made
-/// by `Painter.brush`, rounded type, and a sticker floating as a paste.
+/// The first one — a flat yellow box, a red bar and black "Paintbox" on white — looked
+/// like 2005, and big type on the canvas looked cheap even when it was rounded and modern.
+/// So: no text. Flowing ribbons of the icon's own warm-to-violet colours, as on a macOS
+/// wallpaper, and the icon's swash painted across them with the app's real brush, dab by
+/// dab, so the picture reads as something made in it. The floating paste is the icon.
 enum DemoScene {
     private static func rgb(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
         CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
                 blue: CGFloat(hex & 0xFF) / 255, alpha: a)
     }
 
-    /// A point on the brush stroke, for the wand.
-    static var strokeProbe: CGPoint { CGPoint(x: 150, y: wave(150).rounded()) }
-    static func wave(_ x: CGFloat) -> CGFloat { 300 + 26 * sin((x - 60) / 58) }
+    /// Where the icon's 1024-unit logo lands on the 720x450 canvas.
+    static let logoScale: CGFloat = 0.6
+    static let logoOffset = CGPoint(x: -6, y: -96)
+    static func logo(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: p.x * logoScale + logoOffset.x, y: p.y * logoScale + logoOffset.y)
+    }
+
+    /// A point in the middle of the painted swash, for the wand.
+    static var strokeProbe: CGPoint {
+        let dabs = AppIcon.swashDabs()
+        let p = logo(dabs[dabs.count / 2].at)
+        return CGPoint(x: p.x.rounded(), y: p.y.rounded())
+    }
 
     static func paint(_ doc: PaintDocument) {
         let w = CGFloat(doc.pixelWidth), h = CGFloat(doc.pixelHeight)
+        let dabs = AppIcon.swashDabs(samples: 160).map { (at: logo($0.at), radius: $0.radius * logoScale) }
         doc.edit("Demo") { c in
             let space = CGColorSpace(name: CGColorSpace.sRGB)!
-            // The wash: warm at the top left, cool at the bottom right.
-            let wash = CGGradient(colorsSpace: space, colors: [rgb(0xFFE6D5), rgb(0xF6E3F7), rgb(0xDCE3FF)] as CFArray,
-                                  locations: [0, 0.5, 1])!
-            c.drawLinearGradient(wash, start: .zero, end: CGPoint(x: w, y: h), options: [])
-            // Soft light, as from out of frame.
+            func gradient(_ hexes: [UInt32], _ alpha: CGFloat = 1) -> CGGradient {
+                CGGradient(colorsSpace: space, colors: hexes.map { rgb($0, alpha) } as CFArray, locations: nil)!
+            }
+            // The deep ground the light falls on.
+            c.drawLinearGradient(gradient([0x3A1C7A, 0x231453, 0x120D35]), start: .zero,
+                                 end: CGPoint(x: w * 0.4, y: h),
+                                 options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
             func glow(_ hex: UInt32, _ alpha: CGFloat, _ centre: CGPoint, _ radius: CGFloat) {
                 let g = CGGradient(colorsSpace: space, colors: [rgb(hex, alpha), rgb(hex, 0)] as CFArray,
                                    locations: [0, 1])!
                 c.drawRadialGradient(g, startCenter: centre, startRadius: 0, endCenter: centre,
                                      endRadius: radius, options: [])
             }
-            glow(0xFF8A7A, 0.55, CGPoint(x: 600, y: 90), 260)
-            glow(0x8FC8FF, 0.50, CGPoint(x: 60, y: 430), 280)
-            // The sun, with a halo.
-            c.setFillColor(rgb(0xFFFFFF, 0.45))
-            c.fillEllipse(in: CGRect(x: 552, y: 52, width: 120, height: 120))
-            c.setFillColor(rgb(0xFFB443))
-            c.fillEllipse(in: CGRect(x: 568, y: 68, width: 88, height: 88))
-            // Two hills, the far one lighter.
-            func hill(_ hex: UInt32, _ y0: CGFloat, _ lift: CGFloat, _ shift: CGFloat) {
-                let p = CGMutablePath()
-                p.move(to: CGPoint(x: 0, y: y0))
-                p.addCurve(to: CGPoint(x: w, y: y0 - 10),
-                           control1: CGPoint(x: w * 0.30 + shift, y: y0 - lift),
-                           control2: CGPoint(x: w * 0.62 + shift, y: y0 + lift * 0.7))
-                p.addLine(to: CGPoint(x: w, y: h))
-                p.addLine(to: CGPoint(x: 0, y: h))
-                p.closeSubpath()
-                c.addPath(p)
-                c.setFillColor(rgb(hex))
+            glow(0xFF4F9A, 0.45, CGPoint(x: 660, y: 30), 420)
+            glow(0x6D5BFF, 0.50, CGPoint(x: 60, y: 440), 380)
+
+            // Ribbons, back to front: wide bands between two curves, each casting a deep
+            // soft shadow on the one behind — that is the depth — and catching light just
+            // inside its upper edge. No outlines anywhere: outlines are what made the first
+            // try look like clip-art.
+            func ribbon(_ top: [CGPoint], _ bottom: [CGPoint], _ colours: [UInt32]) {
+                let path = CGMutablePath()
+                path.move(to: top[0])
+                path.addCurve(to: top[3], control1: top[1], control2: top[2])
+                path.addLine(to: bottom[3])
+                path.addCurve(to: bottom[0], control1: bottom[2], control2: bottom[1])
+                path.closeSubpath()
+                c.saveGState()
+                c.setShadow(offset: CGSize(width: 0, height: 18), blur: 60, color: rgb(0x0B0624, 0.6))
+                c.addPath(path)
+                c.setFillColor(rgb(colours[0]))
                 c.fillPath()
+                c.restoreGState()
+                c.saveGState()
+                c.addPath(path)
+                c.clip()
+                c.drawLinearGradient(gradient(colours), start: CGPoint(x: 0, y: h * 0.8),
+                                     end: CGPoint(x: w, y: h * 0.2),
+                                     options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+                let edge = CGMutablePath()
+                edge.move(to: top[0])
+                edge.addCurve(to: top[3], control1: top[1], control2: top[2])
+                // The light is a blurred shadow cast by a copy of the edge drawn well above
+                // the band and clipped away: a smooth falloff, where stacked strokes banded.
+                c.setShadow(offset: CGSize(width: 0, height: -80), blur: 26, color: rgb(0xFFFFFF, 0.38))
+                c.translateBy(x: 0, y: -80)
+                c.addPath(edge)
+                c.setLineWidth(10)
+                c.setStrokeColor(rgb(0xFFFFFF))
+                c.strokePath()
+                c.restoreGState()
             }
-            hill(0xA99BF5, 392, 70, 120)
-            hill(0x5E4FD8, 420, 60, -40)
+            func pts(_ v: [CGFloat]) -> [CGPoint] { stride(from: 0, to: v.count, by: 2).map { CGPoint(x: v[$0], y: v[$0 + 1]) } }
+            ribbon(pts([-80, 110, 200, -30, 380, 300, 800, 30]), pts([-80, 330, 220, 190, 420, 470, 800, 250]),
+                   [0x4338CA, 0x7C3AED, 0xC084FC])
+            ribbon(pts([-80, 250, 180, 120, 440, 420, 800, 170]), pts([-80, 440, 220, 300, 460, 570, 800, 370]),
+                   [0xF43F7A, 0xFF7A59, 0xFFC46B])
+            ribbon(pts([-80, 370, 240, 250, 480, 530, 800, 330]), pts([-80, 560, 260, 460, 520, 640, 800, 520]),
+                   [0x6D28D9, 0xDB2777, 0xFF8A65])
+
+            // The logo's shadow, laid before the paint so the brush's soft edge falls on it.
+            c.saveGState()
+            c.setShadow(offset: CGSize(width: 0, height: -8), blur: 22, color: rgb(0x120626, 0.45))
+            c.beginTransparencyLayer(auxiliaryInfo: nil)
+            for d in dabs {
+                c.addEllipse(in: CGRect(x: d.at.x - d.radius * 0.8, y: d.at.y - d.radius * 0.8,
+                                        width: 1.6 * d.radius, height: 1.6 * d.radius))
+            }
+            c.setFillColor(rgb(0xFFFFFF))
+            c.fillPath()
+            c.endTransparencyLayer()
+            c.restoreGState()
+            // The spark, as the icon has it.
+            var t = CGAffineTransform(translationX: logoOffset.x, y: logoOffset.y).scaledBy(x: logoScale, y: logoScale)
+            // A touch smaller and closer than the icon has it: at this size the icon's spark
+            // floats off on its own.
+            if let spark = AppIcon.sparkPath(centre: CGPoint(x: 742, y: 300), radius: 64, waist: 15).copy(using: &t) {
+                c.saveGState()
+                c.setShadow(offset: CGSize(width: 0, height: -6), blur: 18, color: rgb(0x120626, 0.4))
+                c.addPath(spark)
+                c.setFillColor(rgb(0xFFF7D6))
+                c.fillPath()
+                c.restoreGState()
+            }
         }
-        // A real brush stroke, in short segments the way a drag delivers it.
-        var x: CGFloat = 70
-        while x < 430 {
-            let nx = x + 6
-            Painter.brush(in: doc.context, from: CGPoint(x: x, y: wave(x)), to: CGPoint(x: nx, y: wave(nx)),
-                          size: 24, color: NSColor(srgbRed: 1, green: 0.27, blue: 0.43, alpha: 1))
-            x = nx
+        // The swash itself, painted with the app's brush along the icon's own curve: each
+        // dab as wide as the icon's stroke is there, the way a pressure brush would lay it.
+        for i in 1..<dabs.count {
+            Painter.brush(in: doc.context, from: dabs[i - 1].at, to: dabs[i].at,
+                          size: 2 * dabs[i].radius, color: .white)
         }
-        let rounded = NSFont.systemFont(ofSize: 76, weight: .heavy).fontDescriptor.withDesign(.rounded)
-            .flatMap { NSFont(descriptor: $0, size: 76) } ?? NSFont.boldSystemFont(ofSize: 76)
-        Painter.text(in: doc.context, string: "Paintbox", at: CGPoint(x: 62, y: 120),
-                     font: rounded, color: NSColor(srgbRed: 0.11, green: 0.09, blue: 0.27, alpha: 1))
         doc.touch()
     }
 
-    /// A sticker to float: a white card with a sparkle, transparent round its corners.
-    static func sticker() -> CGImage {
-        let size = 128
-        let ctx = Bitmap.makeContext(width: size, height: size)
-        ctx.withTopLeftOrigin { c in
-            let card = CGRect(x: 8, y: 8, width: 112, height: 112)
-            c.saveGState()
-            c.setShadow(offset: CGSize(width: 0, height: -3), blur: 8, color: rgb(0x000000, 0.22))
-            c.addPath(CGPath(roundedRect: card, cornerWidth: 30, cornerHeight: 30, transform: nil))
-            c.setFillColor(rgb(0xFFFFFF))
-            c.fillPath()
-            c.restoreGState()
-            // A four-point sparkle, filled with a warm gradient.
-            let mid = CGPoint(x: 64, y: 64), r: CGFloat = 38, waist: CGFloat = 9
-            let p = CGMutablePath()
-            for i in 0..<4 {
-                let a = CGFloat(i) * .pi / 2
-                let tip = CGPoint(x: mid.x + r * cos(a), y: mid.y + r * sin(a))
-                let next = CGPoint(x: mid.x + r * cos(a + .pi / 2), y: mid.y + r * sin(a + .pi / 2))
-                let ctl = CGPoint(x: mid.x + waist * cos(a + .pi / 4), y: mid.y + waist * sin(a + .pi / 4))
-                if i == 0 { p.move(to: tip) }
-                p.addQuadCurve(to: next, control: ctl)
-            }
-            p.closeSubpath()
-            c.saveGState()
-            c.addPath(p)
-            c.clip()
-            let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                               colors: [rgb(0xFFC93C), rgb(0xFF5E7E)] as CFArray, locations: [0, 1])!
-            c.drawLinearGradient(g, start: CGPoint(x: 26, y: 26), end: CGPoint(x: 102, y: 102), options: [])
-            c.restoreGState()
-            c.setFillColor(rgb(0x7C6CF2))
-            c.fillEllipse(in: CGRect(x: 88, y: 26, width: 14, height: 14))
-        }
-        return ctx.makeImage()!
-    }
+    /// The floating paste: the app's own icon.
+    static func sticker() -> CGImage { AppIcon.render(pixels: 136) }
 }
 
 /// `Paintbox.app/Contents/MacOS/Paintbox --screenshot out.png`
@@ -5206,7 +5228,7 @@ enum WindowShot {
         controller.canvas.selection = MagicWand.select(in: doc.context,
                                                        at: DemoScene.strokeProbe,
                                                        tolerance: 24, contiguous: true)
-        controller.canvas.beginFloating(image: DemoScene.sticker(), at: CGPoint(x: 528, y: 196))
+        controller.canvas.beginFloating(image: DemoScene.sticker(), at: CGPoint(x: 548, y: 268))
 
         controller.showWindow(nil)
         controller.window?.orderFrontRegardless()

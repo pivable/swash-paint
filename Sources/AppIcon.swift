@@ -44,6 +44,37 @@ enum AppIcon {
         return p
     }
 
+    /// The logo's stroke, in 1024-unit space, as the dabs a brush would lay down: fine
+    /// where it lands, full in the middle, lifting off at the end. Shared with the demo
+    /// picture, which paints the same mark with the app's own brush.
+    static func swashDabs(samples: Int = 240) -> [(at: CGPoint, radius: CGFloat)] {
+        let p0 = CGPoint(x: 250, y: 740), p1 = CGPoint(x: 330, y: 470)
+        let p2 = CGPoint(x: 600, y: 700), p3 = CGPoint(x: 700, y: 400)
+        return (0...samples).map { i in
+            let t = CGFloat(i) / CGFloat(samples), u = 1 - t
+            let a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t
+            let p = CGPoint(x: a * p0.x + b * p1.x + c * p2.x + d * p3.x,
+                            y: a * p0.y + b * p1.y + c * p2.y + d * p3.y)
+            return (p, 14 + 62 * sin(.pi * pow(t, 0.75)))
+        }
+    }
+
+    /// The logo's four-point spark, in 1024-unit space.
+    static func sparkPath(centre mid: CGPoint = CGPoint(x: 762, y: 258), radius r: CGFloat = 78,
+                          waist: CGFloat = 18) -> CGPath {
+        let spark = CGMutablePath()
+        for i in 0..<4 {
+            let a = CGFloat(i) * .pi / 2
+            let tip = CGPoint(x: mid.x + r * cos(a), y: mid.y + r * sin(a))
+            let next = CGPoint(x: mid.x + r * cos(a + .pi / 2), y: mid.y + r * sin(a + .pi / 2))
+            let ctl = CGPoint(x: mid.x + waist * cos(a + .pi / 4), y: mid.y + waist * sin(a + .pi / 4))
+            if i == 0 { spark.move(to: tip) }
+            spark.addQuadCurve(to: next, control: ctl)
+        }
+        spark.closeSubpath()
+        return spark
+    }
+
     /// The icon at `pixels` square, transparent outside the tile.
     static func render(pixels: Int) -> CGImage {
         let ctx = Bitmap.makeContext(width: pixels, height: pixels)
@@ -81,22 +112,11 @@ enum AppIcon {
                                    locations: [0, 1])!
             c.drawLinearGradient(sheen, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 560), options: [])
 
-            // The stroke: one swash of a loaded brush — fine where it lands, full in the
-            // middle, lifting off at the end — stamped along a curve as a brush stamps.
-            func bezier(_ t: CGFloat, _ p0: CGPoint, _ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint) -> CGPoint {
-                let u = 1 - t
-                let a = u * u * u, b = 3 * u * u * t, c2 = 3 * u * t * t, d = t * t * t
-                return CGPoint(x: a * p0.x + b * p1.x + c2 * p2.x + d * p3.x,
-                               y: a * p0.y + b * p1.y + c2 * p2.y + d * p3.y)
-            }
+            // The stroke: one swash of a loaded brush, stamped along a curve as a brush stamps.
             let swash = CGMutablePath()
-            let samples = 240
-            for i in 0...samples {
-                let t = CGFloat(i) / CGFloat(samples)
-                let p = bezier(t, CGPoint(x: 250, y: 740), CGPoint(x: 330, y: 470),
-                               CGPoint(x: 600, y: 700), CGPoint(x: 700, y: 400))
-                let r = 14 + 62 * sin(.pi * pow(t, 0.75))
-                swash.addEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))
+            for dab in swashDabs() {
+                swash.addEllipse(in: CGRect(x: dab.at.x - dab.radius, y: dab.at.y - dab.radius,
+                                            width: 2 * dab.radius, height: 2 * dab.radius))
             }
             c.saveGState()
             c.setShadow(offset: CGSize(width: 0, height: -10 * k), blur: 26 * k, color: rgb(0x2E1065, 0.35))
@@ -108,17 +128,7 @@ enum AppIcon {
             c.restoreGState()
 
             // The spark, top right, where the stroke is heading.
-            let mid = CGPoint(x: 762, y: 258), r: CGFloat = 78, waist: CGFloat = 18
-            let spark = CGMutablePath()
-            for i in 0..<4 {
-                let a = CGFloat(i) * .pi / 2
-                let tip = CGPoint(x: mid.x + r * cos(a), y: mid.y + r * sin(a))
-                let next = CGPoint(x: mid.x + r * cos(a + .pi / 2), y: mid.y + r * sin(a + .pi / 2))
-                let ctl = CGPoint(x: mid.x + waist * cos(a + .pi / 4), y: mid.y + waist * sin(a + .pi / 4))
-                if i == 0 { spark.move(to: tip) }
-                spark.addQuadCurve(to: next, control: ctl)
-            }
-            spark.closeSubpath()
+            let spark = sparkPath()
             c.addPath(spark)
             c.setFillColor(rgb(0xFFF7D6))
             c.fillPath()
